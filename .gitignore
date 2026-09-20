@@ -1,0 +1,27 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# PyTorch checkpoints and local large files
+saved_models/*.pt
+saved_models/*.pth
+
+# Large Dataset files (auto-downloaded via Hugging Face mirror on first run)
+data/mvtec/
+data/synthetic/
+*.tar.xz
+*.tar.gz
+*.zip
+
+# Caches and IDE files
+.cache/
+.idea/
+.vscode/
+.system_generated/
+*.log
+
+# Environments
+env/
+venv/
+.venv/
