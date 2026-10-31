@@ -1,26 +1,43 @@
-/* SynthQC Vision Station - Enterprise Styling */
+/*
+ * SynthQC Vision Station - Unslopped Industrial Design
+ * Based on Damir Sokolovsky's unslop methodology (CC BY 4.0)
+ * Graphite neutral ramp, quiet chrome, single technical accent, exact typography.
+ */
 
 :root {
-  --bg-primary: #0A0E17;
-  --bg-secondary: #111726;
-  --bg-card: #161F33;
-  --bg-card-hover: #1C2740;
-  --border-subtle: #1E2B45;
-  --border-focus: #3B82F6;
-  --text-main: #F1F5F9;
-  --text-muted: #94A3B8;
-  --text-subtle: #64748B;
-  --accent-blue: #3B82F6;
-  --accent-cyan: #06B6D4;
-  --pass-green: #10B981;
-  --pass-bg: rgba(16, 185, 129, 0.12);
-  --pass-border: rgba(16, 185, 129, 0.35);
-  --fail-red: #EF4444;
-  --fail-bg: rgba(239, 68, 68, 0.12);
-  --fail-border: rgba(239, 68, 68, 0.35);
-  --warn-amber: #F59E0B;
-  --warn-bg: rgba(245, 158, 11, 0.12);
-  --warn-border: rgba(245, 158, 11, 0.35);
+  /* Neutral Ramp: Graphite (Tokens from unslop) */
+  --surface-deep: #0f0f10;
+  --surface-base: #141415;
+  --surface-card: #19191b;
+  --surface-raised: #232325;
+  --surface-hover: #2a2a2d;
+
+  /* Hairlines (8% white) */
+  --border-hairline: rgba(237, 237, 237, 0.08);
+  --border-focus: rgba(59, 130, 246, 0.4);
+
+  /* Typography Roles */
+  --text-primary: #ededed;
+  --text-secondary: #a1a1a6;
+  --text-muted: #85858b;
+
+  /* Single Technical Accent (Cobalt Steel) */
+  --accent: #3b82f6;
+  --accent-surface: rgba(59, 130, 246, 0.12);
+  --accent-hairline: rgba(59, 130, 246, 0.28);
+
+  /* Semantic Colors (Toned down, non-neon) */
+  --positive: #4cc38a;
+  --positive-surface: rgba(76, 195, 138, 0.10);
+  --positive-hairline: rgba(76, 195, 138, 0.25);
+
+  --negative: #e5484d;
+  --negative-surface: rgba(229, 72, 77, 0.10);
+  --negative-hairline: rgba(229, 72, 77, 0.25);
+
+  --warning: #f59e0b;
+  --warning-surface: rgba(245, 158, 11, 0.10);
+  --warning-hairline: rgba(245, 158, 11, 0.25);
 }
 
 * {
@@ -28,157 +45,218 @@
   margin: 0;
   padding: 0;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
 }
 
 body {
-  background-color: var(--bg-primary);
-  color: var(--text-main);
+  background-color: var(--surface-base);
+  color: var(--text-primary);
   min-height: 100vh;
   display: flex;
   flex-direction: column;
   overflow-x: hidden;
+  font-size: 14px;
+  line-height: 1.45;
 }
 
-/* Custom Scrollbar */
+/* Monospace Telemetry */
+.font-mono {
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-feature-settings: "tnum" on, "zero" on;
+}
+
+/* Scrollbar */
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 5px;
+  height: 5px;
 }
 ::-webkit-scrollbar-track {
-  background: var(--bg-primary);
+  background: var(--surface-deep);
 }
 ::-webkit-scrollbar-thumb {
-  background: var(--border-subtle);
-  border-radius: 4px;
+  background: #28282b;
+  border-radius: 3px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--text-subtle);
+  background: #38383d;
 }
 
-/* Glassmorphism Navigation */
+/* Header & Shell */
 .header-nav {
-  background: rgba(17, 23, 38, 0.85);
-  backdrop-filter: blur(12px);
-  border-bottom: 1px solid var(--border-subtle);
+  background: var(--surface-deep);
+  border-bottom: 1px solid var(--border-hairline);
   position: sticky;
   top: 0;
   z-index: 50;
+  height: 56px;
 }
 
-/* Active Tab indicator */
+/* Tab navigation */
 .nav-tab {
-  transition: all 0.2s ease;
+  font-size: 13px;
+  color: var(--text-secondary);
+  transition: color 150ms ease, background-color 150ms ease;
   position: relative;
-  cursor: pointer;
-  color: var(--text-muted);
+  height: 36px;
+  padding: 0 14px;
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
 }
 .nav-tab:hover {
-  color: var(--text-main);
+  color: var(--text-primary);
+  background-color: rgba(255, 255, 255, 0.03);
 }
 .nav-tab.active {
-  color: #60A5FA;
-  font-weight: 600;
+  color: var(--text-primary);
+  background-color: var(--surface-raised);
 }
 .nav-tab.active::after {
   content: '';
   position: absolute;
-  bottom: -1px;
-  left: 0;
-  right: 0;
+  bottom: -10px;
+  left: 14px;
+  right: 14px;
   height: 2px;
-  background: #3B82F6;
-  border-radius: 2px 2px 0 0;
+  background: var(--accent);
+  border-radius: 1px;
 }
 
-/* Background Job Banner */
+/* Background Job Banner (Calm, non-pulsing) */
 .bg-job-banner {
-  background: linear-gradient(90deg, rgba(30, 58, 138, 0.35) 0%, rgba(17, 24, 39, 0.7) 100%);
-  border-bottom: 1px solid rgba(59, 130, 246, 0.4);
-  animation: pulse-border 2s infinite ease-in-out;
-}
-@keyframes pulse-border {
-  0%, 100% { border-color: rgba(59, 130, 246, 0.4); }
-  50% { border-color: rgba(59, 130, 246, 0.8); }
+  background: var(--surface-raised);
+  border-bottom: 1px solid var(--border-hairline);
+  height: 36px;
+  display: flex;
+  align-items: center;
 }
 
-/* Interactive Cards */
+/* Surface Cards */
 .card {
-  background: var(--bg-secondary);
-  border: 1px solid var(--border-subtle);
-  border-radius: 12px;
-  transition: all 0.2s ease;
-}
-.card:hover {
-  border-color: rgba(59, 130, 246, 0.3);
+  background: var(--surface-card);
+  border: 1px solid var(--border-hairline);
+  border-radius: 10px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
 }
 
-/* Verdict Badges */
+/* Interactive Buttons */
+.btn-neutral {
+  background: var(--surface-raised);
+  border: 1px solid var(--border-hairline);
+  color: var(--text-primary);
+  border-radius: 6px;
+  height: 32px;
+  padding: 0 12px;
+  font-size: 13px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  transition: background-color 150ms ease, border-color 150ms ease;
+}
+.btn-neutral:hover {
+  background: var(--surface-hover);
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
+.btn-primary {
+  background: var(--text-primary);
+  color: #111112;
+  font-weight: 500;
+  border-radius: 6px;
+  height: 32px;
+  padding: 0 14px;
+  font-size: 13px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: opacity 150ms ease;
+}
+.btn-primary:hover {
+  opacity: 0.92;
+}
+
+/* Verdict Badges (Calm, quiet) */
 .badge-pass {
-  background: var(--pass-bg);
-  border: 1px solid var(--pass-border);
-  color: #34D399;
+  background: var(--positive-surface);
+  border: 1px solid var(--positive-hairline);
+  color: var(--positive);
+  border-radius: 8px;
 }
 .badge-fail {
-  background: var(--fail-bg);
-  border: 1px solid var(--fail-border);
-  color: #F87171;
+  background: var(--negative-surface);
+  border: 1px solid var(--negative-hairline);
+  color: var(--negative);
+  border-radius: 8px;
 }
-.badge-warn {
-  background: var(--warn-bg);
-  border: 1px solid var(--warn-border);
-  color: #FBBF24;
+.badge-neutral {
+  background: var(--surface-raised);
+  border: 1px solid var(--border-hairline);
+  color: var(--text-secondary);
+  border-radius: 8px;
 }
 
 /* View Mode Toggles */
 .toggle-btn {
-  background: var(--bg-card);
-  border: 1px solid var(--border-subtle);
-  color: var(--text-muted);
-  transition: all 0.15s ease;
+  background: var(--surface-card);
+  border: 1px solid var(--border-hairline);
+  color: var(--text-secondary);
+  font-size: 12px;
+  height: 30px;
+  padding: 0 12px;
+  border-radius: 5px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  transition: all 120ms ease;
 }
 .toggle-btn.active {
-  background: #2563EB;
-  color: #FFFFFF;
-  border-color: #3B82F6;
+  background: var(--surface-raised);
+  color: var(--text-primary);
+  border-color: rgba(255, 255, 255, 0.15);
 }
 
-/* Image Visualizer Frame */
+/* Optical Canvas Frame */
 .image-canvas-frame {
-  background: #060911;
-  border: 1px solid var(--border-subtle);
-  border-radius: 10px;
+  background: #09090a;
+  border: 1px solid var(--border-hairline);
+  border-radius: 8px;
   position: relative;
   overflow: hidden;
   display: flex;
   align-items: center;
   justify-content: center;
-  min-height: 380px;
+  min-height: 420px;
 }
 
 /* Toast Notifications */
 #toast-container {
   position: fixed;
-  bottom: 24px;
-  right: 24px;
+  bottom: 20px;
+  right: 20px;
   z-index: 100;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 8px;
 }
 .toast {
-  background: var(--bg-card);
-  border: 1px solid var(--border-subtle);
-  color: var(--text-main);
-  padding: 12px 18px;
-  border-radius: 8px;
-  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5);
+  background: var(--surface-raised);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: var(--text-primary);
+  padding: 10px 14px;
+  border-radius: 6px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
   display: flex;
   align-items: center;
-  gap: 12px;
-  font-size: 0.9rem;
-  transform: translateY(20px);
+  gap: 10px;
+  font-size: 13px;
+  transform: translateY(10px);
   opacity: 0;
-  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  transition: transform 200ms ease, opacity 200ms ease;
 }
 .toast.show {
   transform: translateY(0);

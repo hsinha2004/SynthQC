@@ -1,7 +1,6 @@
 /**
- * SynthQC Vision Station - Enterprise Frontend Controller
- * Handles Station switching, optical inference, flaw synthesis,
- * asynchronous background job polling, and analytics rendering.
+ * SynthQC Vision Station - Unslopped Frontend Controller
+ * Minimal, quiet, precise client logic.
  */
 
 // Application State
@@ -27,17 +26,14 @@ const state = {
 // ==============================================================================
 
 document.addEventListener('DOMContentLoaded', async () => {
-  console.log('[SynthQC] Initializing Vision Station...');
   await refreshSystemStatus();
   await loadCatalogPresets();
   setupAnalyticsChart();
   startBackgroundJobPolling();
 
-  // Load first default preset automatically so the view isn't empty!
   if (state.catalogPresets['preset_large']) {
     loadSamplePreset('preset_large');
   } else {
-    // Generate default flaw preview in studio
     generateStudioSample();
   }
 });
@@ -45,14 +41,12 @@ document.addEventListener('DOMContentLoaded', async () => {
 function switchTab(tabId) {
   state.activeTab = tabId;
 
-  // Update nav button states
   document.querySelectorAll('.nav-tab').forEach(btn => {
     btn.classList.remove('active');
   });
   const activeBtn = document.getElementById(`tab-btn-${tabId}`);
   if (activeBtn) activeBtn.classList.add('active');
 
-  // Toggle view visibility
   document.querySelectorAll('.station-view').forEach(view => {
     view.classList.add('hidden');
     view.classList.remove('block');
@@ -63,10 +57,8 @@ function switchTab(tabId) {
     targetView.classList.add('block');
   }
 
-  // Refresh icons
   if (window.lucide) lucide.createIcons();
 
-  // Specific tab triggers
   if (tabId === 'studio' && !state.lastStudioResult) {
     generateStudioSample();
   } else if (tabId === 'analytics') {
@@ -85,19 +77,16 @@ async function refreshSystemStatus() {
     const data = await res.json();
     state.systemStatus = data;
 
-    // Header labels
-    document.getElementById('header-specimen').textContent = data.specimen_profile || 'Glass Bottle';
-    document.getElementById('header-active-model').textContent = data.active_model?.name || 'Active Model';
+    document.getElementById('header-specimen').textContent = data.specimen_profile || 'Glass bottle';
+    document.getElementById('header-active-model').textContent = data.active_model?.name || 'Active model';
 
-    // Update deployed models list in Station 3
     renderDeployedModels(data.available_models || []);
 
-    // Check if background job was already running
     if (data.background_job?.is_running) {
       showBackgroundBanner(data.background_job);
     }
   } catch (err) {
-    console.error('Failed to fetch system status:', err);
+    console.error('Status fetch error:', err);
   }
 }
 
@@ -106,19 +95,19 @@ function renderDeployedModels(models) {
   if (!container) return;
 
   container.innerHTML = models.map(m => `
-    <div class="flex items-center justify-between p-3 rounded-lg ${m.is_active ? 'bg-blue-950/30 border border-blue-500/40' : 'bg-[#161F33] border border-[#1E2B45]'} transition">
+    <div class="flex items-center justify-between p-3 rounded-lg ${m.is_active ? 'bg-[#19191b] border border-[rgba(59,130,246,0.3)]' : 'bg-[#141415] border border-[rgba(237,237,237,0.08)]'}">
       <div>
-        <div class="text-xs font-semibold text-slate-200 flex items-center gap-2">
+        <div class="text-xs font-medium text-[#ededed] flex items-center gap-2">
           <span>${m.name}</span>
-          ${m.is_active ? '<span class="text-[10px] px-2 py-0.2 rounded bg-blue-500/20 text-blue-400 font-normal">ACTIVE</span>' : ''}
+          ${m.is_active ? '<span class="text-[11px] font-mono text-[#3b82f6]">Active</span>' : ''}
         </div>
-        <div class="text-[11px] text-slate-400 mt-0.5">Accuracy: ${m.accuracy}% | Latency: 18ms</div>
+        <div class="text-xs font-mono text-[#85858b] mt-0.5">Accuracy: ${m.accuracy}% — Latency: 18 ms</div>
       </div>
       ${!m.is_active ? `
-        <button onclick="deployModel('${m.key}')" class="px-3 py-1.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium border border-[#1E2B45] transition">
+        <button onclick="deployModel('${m.key}')" class="btn-neutral text-xs">
           Deploy
         </button>
-      ` : '<span class="text-xs text-blue-400 font-medium px-2">Online</span>'}
+      ` : '<span class="text-xs font-mono text-[#4cc38a]">Online</span>'}
     </div>
   `).join('');
 }
@@ -132,16 +121,16 @@ async function deployModel(modelKey) {
     });
     const data = await res.json();
     if (data.success) {
-      showToast(`Switched active vision model to ${data.name}`, 'success');
+      showToast(`Activated ${data.name}`, 'info');
       await refreshSystemStatus();
     }
   } catch (err) {
-    showToast('Failed to switch model', 'error');
+    showToast('Failed to switch model', 'warn');
   }
 }
 
 // ==============================================================================
-// Station 1: Inspection & Visual Explainability
+// Station 1: Live Inspection
 // ==============================================================================
 
 async function loadCatalogPresets() {
@@ -152,7 +141,7 @@ async function loadCatalogPresets() {
       state.catalogPresets[p.id] = p;
     });
   } catch (err) {
-    console.error('Failed to load presets:', err);
+    console.error('Presets error:', err);
   }
 }
 
@@ -172,7 +161,7 @@ async function loadSamplePreset(presetId) {
     const result = await res.json();
     renderInspectionResult(result);
   } catch (err) {
-    showToast('Inspection request failed', 'error');
+    showToast('Inspection request failed', 'warn');
   } finally {
     loading.classList.add('hidden');
   }
@@ -195,57 +184,51 @@ async function handleFileUpload(event) {
     });
     const result = await res.json();
     renderInspectionResult(result);
-    showToast(`Inspected uploaded image: ${file.name}`, 'info');
+    showToast(`Inspected ${file.name}`, 'info');
   } catch (err) {
-    showToast('Upload inspection failed', 'error');
+    showToast('Inspection upload failed', 'warn');
   } finally {
     loading.classList.add('hidden');
-    event.target.value = ''; // Reset input
+    event.target.value = '';
   }
 }
 
 function renderInspectionResult(data) {
   state.activeInspection = data;
 
-  // Hide placeholder, show image
   document.getElementById('empty-view-placeholder').classList.add('hidden');
   const imgEl = document.getElementById('main-view-img');
   imgEl.classList.remove('hidden');
 
-  // Set default view based on active mode
   setInspectionViewMode(state.inspectionViewMode);
 
-  // Big Verdict Banner
   const banner = document.getElementById('verdict-banner');
   const title = document.getElementById('verdict-title');
   const sub = document.getElementById('verdict-subtitle');
   const icon = document.getElementById('verdict-icon');
 
-  banner.className = 'p-4 rounded-xl flex items-center gap-3 transition-all';
+  banner.className = 'p-3.5 rounded-lg flex items-center gap-3 transition-all';
   if (data.is_defective) {
     banner.classList.add('badge-fail');
-    icon.className = 'w-8 h-8 rounded-lg flex items-center justify-center bg-rose-500/20 text-rose-400';
-    icon.innerHTML = '<i data-lucide="alert-triangle" class="w-5 h-5"></i>';
-    title.textContent = 'DEFECT DETECTED';
+    icon.innerHTML = '<i data-lucide="alert-triangle" class="w-4 h-4 stroke-[1.5]"></i>';
+    title.textContent = 'Defect detected';
     sub.textContent = `${data.defect_type} (${data.confidence_percentage}% confidence)`;
   } else {
     banner.classList.add('badge-pass');
-    icon.className = 'w-8 h-8 rounded-lg flex items-center justify-center bg-emerald-500/20 text-emerald-400';
-    icon.innerHTML = '<i data-lucide="check-circle" class="w-5 h-5"></i>';
-    title.textContent = 'PART PASSED';
-    sub.textContent = `Clean / Flawless (${data.confidence_percentage}% confidence)`;
+    icon.innerHTML = '<i data-lucide="check" class="w-4 h-4 stroke-[1.5]"></i>';
+    title.textContent = 'Passed';
+    sub.textContent = `Nominal surface (${data.confidence_percentage}% confidence)`;
   }
 
-  // Telemetry details
-  document.getElementById('inspect-latency').textContent = `Latency: ${data.latency_ms} ms`;
+  document.getElementById('inspect-latency').textContent = `${data.latency_ms} ms`;
   document.getElementById('metric-defect-type').textContent = data.defect_type;
   document.getElementById('metric-confidence').textContent = `${data.confidence_percentage}%`;
 
   const matchEl = document.getElementById('metric-match-score');
   if (data.focus_match_iou) {
-    matchEl.textContent = `${data.focus_match_iou}% match with true flaw`;
+    matchEl.textContent = `${data.focus_match_iou}% IoU match with ground-truth defect`;
   } else {
-    matchEl.textContent = 'N/A (Pristine or Custom Part)';
+    matchEl.textContent = 'Nominal part (no defect expected)';
   }
 
   if (window.lucide) lucide.createIcons();
@@ -263,16 +246,16 @@ function setInspectionViewMode(mode) {
 
   if (mode === 'clean') {
     imgEl.src = `data:image/jpeg;base64,${state.activeInspection.clean_image_b64}`;
-    captionEl.textContent = 'Viewing raw optical camera feed';
+    captionEl.textContent = 'Raw optical feed';
   } else {
     imgEl.src = `data:image/jpeg;base64,${state.activeInspection.heatmap_image_b64}`;
-    captionEl.textContent = 'Heatmap shows where the AI detected flaw textures';
+    captionEl.textContent = 'Grad-CAM visual localization heatmap';
   }
 }
 
 async function logOperatorDecision(decision) {
   if (!state.activeInspection) {
-    showToast('Please inspect a part before recording a decision', 'warn');
+    showToast('Inspect a specimen before logging disposition', 'warn');
     return;
   }
 
@@ -292,16 +275,16 @@ async function logOperatorDecision(decision) {
     });
     const data = await res.json();
     if (data.success) {
-      showToast(`Decision recorded: ${decision}`, 'success');
+      showToast(`Logged disposition: ${decision}`, 'info');
       refreshAuditLog();
     }
   } catch (err) {
-    showToast('Failed to log decision', 'error');
+    showToast('Failed to record disposition', 'warn');
   }
 }
 
 async function runBatchInspection() {
-  showToast('Screening 12 conveyor samples in parallel...', 'info');
+  showToast('Screening 12 specimens in parallel...', 'info');
   try {
     const res = await fetch('/api/inspect/batch?limit=12');
     const data = await res.json();
@@ -310,48 +293,41 @@ async function runBatchInspection() {
     const grid = document.getElementById('batch-cards-grid');
     const summary = document.getElementById('batch-summary-text');
 
-    summary.textContent = `${data.total_screened} Screened | ${data.rejected_count} Rejected | ${data.passed_count} Passed`;
+    summary.textContent = `${data.total_screened} evaluated — ${data.rejected_count} rejected, ${data.passed_count} passed`;
 
     grid.innerHTML = data.items.map(item => `
-      <div class="bg-[#060911] p-2 rounded-lg border ${item.is_flagged ? 'border-rose-500/40 bg-rose-950/10' : 'border-emerald-500/40 bg-emerald-950/10'} text-center space-y-1.5">
-        <img src="data:image/jpeg;base64,${item.thumbnail_b64}" class="w-full h-28 object-contain rounded bg-[#0A0E17]" alt="${item.stem}">
-        <div class="flex items-center justify-between px-1 text-[10px]">
-          <span class="font-bold ${item.is_flagged ? 'text-rose-400' : 'text-emerald-400'}">${item.verdict}</span>
-          <span class="text-slate-400">${item.confidence}%</span>
+      <div class="bg-[#09090a] p-2 rounded border ${item.is_flagged ? 'border-[rgba(229,72,77,0.3)]' : 'border-[rgba(76,195,138,0.25)]'} text-center space-y-1">
+        <img src="data:image/jpeg;base64,${item.thumbnail_b64}" class="w-full h-24 object-contain rounded bg-[#0f0f10]" alt="${item.stem}">
+        <div class="flex items-center justify-between text-[11px] font-mono px-0.5">
+          <span class="${item.is_flagged ? 'text-[#e5484d]' : 'text-[#4cc38a]'} font-medium">${item.verdict}</span>
+          <span class="text-[#85858b]">${item.confidence}%</span>
         </div>
-        <div class="text-[10px] text-slate-400 truncate px-1">${item.defect_type}</div>
+        <div class="text-[11px] text-[#85858b] truncate px-0.5">${item.defect_type}</div>
       </div>
     `).join('');
 
     container.classList.remove('hidden');
     if (window.lucide) lucide.createIcons();
-    showToast(`Batch complete: ${data.rejected_count} flaws stopped`, 'success');
   } catch (err) {
-    showToast('Batch screening failed', 'error');
+    showToast('Batch screening failed', 'warn');
   }
 }
 
 // ==============================================================================
-// Station 2: Defect Studio (Data Augmentation)
+// Station 2: Defect Studio
 // ==============================================================================
 
 function setStudioFlaw(category, btn) {
   state.studioParams.flawCategory = category;
-  document.querySelectorAll('.studio-flaw-btn').forEach(b => {
-    b.classList.remove('active', 'bg-blue-600/20', 'border-blue-500/40', 'text-blue-400');
-    b.classList.add('bg-[#161F33]', 'border-[#1E2B45]', 'text-slate-300');
-  });
-  btn.classList.add('active', 'bg-blue-600/20', 'border-blue-500/40', 'text-blue-400');
+  document.querySelectorAll('.studio-flaw-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
   generateStudioSample();
 }
 
 function setStudioPreset(preset, btn) {
   state.studioParams.preset = preset;
-  document.querySelectorAll('.studio-pos-btn').forEach(b => {
-    b.classList.remove('active', 'bg-blue-600/20', 'border-blue-500/40', 'text-blue-400');
-    b.classList.add('bg-[#161F33]', 'border-[#1E2B45]', 'text-slate-300');
-  });
-  btn.classList.add('active', 'bg-blue-600/20', 'border-blue-500/40', 'text-blue-400');
+  document.querySelectorAll('.studio-pos-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
   generateStudioSample();
 }
 
@@ -388,13 +364,13 @@ async function generateStudioSample() {
       document.getElementById('studio-preview-mask').src = `data:image/jpeg;base64,${data.mask_b64}`;
     }
   } catch (err) {
-    console.error('Studio generation failed:', err);
+    console.error('Studio generation error:', err);
   }
 }
 
 async function commitStudioSample() {
   if (!state.lastStudioResult) {
-    showToast('Generate a defect preview first', 'warn');
+    showToast('Generate a preview first', 'warn');
     return;
   }
 
@@ -409,10 +385,10 @@ async function commitStudioSample() {
     });
     const data = await res.json();
     if (data.success) {
-      showToast(data.message, 'success');
+      showToast('Sample committed to training pool', 'info');
     }
   } catch (err) {
-    showToast('Failed to save sample to pool', 'error');
+    showToast('Failed to commit sample', 'warn');
   }
 }
 
@@ -423,7 +399,7 @@ async function commitStudioSample() {
 function updateScarcityLabel() {
   const val = parseInt(document.getElementById('train-scarcity').value);
   const parts = Math.max(3, Math.round(39 * (val / 100)));
-  document.getElementById('train-scarcity-label').textContent = `${val}% (${parts} physical broken parts)`;
+  document.getElementById('train-scarcity-label').textContent = `${val}% (${parts} samples)`;
 }
 
 async function startBackgroundTraining() {
@@ -445,13 +421,13 @@ async function startBackgroundTraining() {
     const data = await res.json();
 
     if (data.success) {
-      showToast('Training initiated in background! You can keep inspecting parts.', 'info');
+      showToast('Background training initiated', 'info');
       startBackgroundJobPolling();
     } else {
-      showToast(data.detail || 'Training failed to start', 'error');
+      showToast(data.detail || 'Training failed to start', 'warn');
     }
   } catch (err) {
-    showToast('Error requesting training start', 'error');
+    showToast('Error requesting training', 'warn');
   }
 }
 
@@ -470,12 +446,11 @@ function startBackgroundJobPolling() {
         hideBackgroundBanner();
         updateTrainingStationMonitor(job);
         if (job.result && job.progress === 1.0) {
-          // Completed
           await refreshSystemStatus();
         }
       }
     } catch (err) {
-      console.warn('Status poll error:', err);
+      console.warn('Poll error:', err);
     }
   }, 1500);
 }
@@ -489,15 +464,12 @@ function showBackgroundBanner(job) {
   const pct = Math.round(job.progress * 100);
   document.getElementById('bg-banner-progress').style.width = `${pct}%`;
   document.getElementById('bg-banner-pct').textContent = `${pct}%`;
-
-  document.getElementById('train-tab-badge').classList.remove('hidden');
 }
 
 function hideBackgroundBanner() {
   const banner = document.getElementById('bg-job-banner');
   banner.classList.add('hidden');
   banner.classList.remove('flex');
-  document.getElementById('train-tab-badge').classList.add('hidden');
 }
 
 function updateTrainingStationMonitor(job) {
@@ -508,25 +480,25 @@ function updateTrainingStationMonitor(job) {
   const logLine = document.getElementById('train-log-line-1');
 
   if (job.is_running) {
-    badge.className = 'text-xs px-2.5 py-0.5 rounded-full bg-blue-500/20 text-blue-400 font-mono animate-pulse';
-    badge.textContent = `Running (Ep ${job.current_epoch}/${job.total_epochs})`;
+    badge.className = 'text-xs font-mono text-[#3b82f6]';
+    badge.textContent = `Running — Ep ${job.current_epoch}/${job.total_epochs}`;
     const pct = Math.round(job.progress * 100);
     bar.style.width = `${pct}%`;
     pctText.textContent = `${pct}%`;
     msgText.textContent = job.message;
-    logLine.textContent = `Loss: ${job.loss} | Epoch ${job.current_epoch}/${job.total_epochs}`;
+    logLine.textContent = `Epoch ${job.current_epoch}/${job.total_epochs} — Loss: ${job.loss}`;
   } else if (job.result) {
-    badge.className = 'text-xs px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 font-mono';
+    badge.className = 'text-xs font-mono text-[#4cc38a]';
     badge.textContent = 'Completed';
     bar.style.width = '100%';
     pctText.textContent = '100%';
     msgText.textContent = job.message;
-    logLine.textContent = `Deployed: Accuracy ${job.result.accuracy}% | Catch Rate ${job.result.recall}%`;
+    logLine.textContent = `Accuracy ${job.result.accuracy}% — Catch rate ${job.result.recall}%`;
   }
 }
 
 // ==============================================================================
-// Station 4: Analytics & Audit Log
+// Station 4: Analytics & Audit
 // ==============================================================================
 
 function setupAnalyticsChart() {
@@ -536,28 +508,27 @@ function setupAnalyticsChart() {
   state.scarcityChart = new Chart(ctx, {
     type: 'line',
     data: {
-      labels: ['10% (3 parts)', '25% (10 parts)', '50% (19 parts)', '100% (39 parts)'],
+      labels: ['10% (3 samples)', '25% (10 samples)', '50% (19 samples)', '100% (39 samples)'],
       datasets: [
         {
-          label: 'SynthQC Augmented (Arm B)',
+          label: 'SynthQC augmented',
           data: [83.1, 88.9, 93.4, 96.5],
-          borderColor: '#3B82F6',
-          backgroundColor: 'rgba(59, 130, 246, 0.1)',
-          tension: 0.3,
-          borderWidth: 2.5,
-          pointBackgroundColor: '#3B82F6',
-          pointRadius: 4,
-          fill: true
+          borderColor: '#3b82f6',
+          backgroundColor: 'transparent',
+          tension: 0.2,
+          borderWidth: 2,
+          pointBackgroundColor: '#3b82f6',
+          pointRadius: 3
         },
         {
-          label: 'Standard Baseline (Arm A)',
+          label: 'Standard baseline',
           data: [72.4, 84.6, 91.2, 96.9],
-          borderColor: '#94A3B8',
-          borderDash: [5, 5],
-          tension: 0.3,
-          borderWidth: 2,
-          pointBackgroundColor: '#94A3B8',
-          pointRadius: 4
+          borderColor: '#85858b',
+          borderDash: [4, 4],
+          tension: 0.2,
+          borderWidth: 1.5,
+          pointBackgroundColor: '#85858b',
+          pointRadius: 3
         }
       ]
     },
@@ -567,11 +538,11 @@ function setupAnalyticsChart() {
       plugins: {
         legend: {
           position: 'top',
-          labels: { color: '#CBD5E1', font: { size: 11 } }
+          labels: { color: '#a1a1a6', font: { size: 12, family: 'sans-serif' }, boxWidth: 12 }
         },
         tooltip: {
           callbacks: {
-            label: (ctx) => `${ctx.dataset.label}: ${ctx.raw}% F1 Score`
+            label: (ctx) => `${ctx.dataset.label}: ${ctx.raw}% F1`
           }
         }
       },
@@ -579,12 +550,12 @@ function setupAnalyticsChart() {
         y: {
           min: 65,
           max: 100,
-          grid: { color: 'rgba(255, 255, 255, 0.05)' },
-          ticks: { color: '#94A3B8', font: { size: 10 } }
+          grid: { color: 'rgba(237, 237, 237, 0.04)' },
+          ticks: { color: '#85858b', font: { size: 11, family: 'monospace' } }
         },
         x: {
-          grid: { color: 'rgba(255, 255, 255, 0.05)' },
-          ticks: { color: '#94A3B8', font: { size: 10 } }
+          grid: { color: 'rgba(237, 237, 237, 0.04)' },
+          ticks: { color: '#85858b', font: { size: 11, family: 'sans-serif' } }
         }
       }
     }
@@ -594,9 +565,9 @@ function setupAnalyticsChart() {
 function updateSensitivitySetting() {
   const val = parseFloat(document.getElementById('sensitivity-slider').value);
   let label = `${val.toFixed(2)}`;
-  if (val <= 0.30) label += ' (Strict: Zero Defect Escape)';
-  else if (val >= 0.70) label += ' (Lenient: Zero Waste)';
-  else label += ' (Balanced: Factory Recommended)';
+  if (val <= 0.30) label += ' (Strict: Zero escapes)';
+  else if (val >= 0.70) label += ' (Lenient: Zero false scrap)';
+  else label += ' (Balanced: Factory standard)';
 
   document.getElementById('sensitivity-val-label').textContent = label;
 }
@@ -609,38 +580,36 @@ async function refreshAuditLog() {
     const countEl = document.getElementById('audit-log-count');
 
     if (!data.audit_log || data.audit_log.length === 0) {
-      countEl.textContent = '0 records logged';
-      tbody.innerHTML = '<tr><td colspan="6" class="py-4 text-center text-slate-500 font-sans">No operator dispositions recorded yet. Inspect parts in Station 1 to log decisions.</td></tr>';
+      countEl.textContent = '0 logged';
+      tbody.innerHTML = '<tr><td colspan="6" class="py-4 text-center text-[#85858b] font-sans">No operator dispositions recorded yet.</td></tr>';
       return;
     }
 
-    countEl.textContent = `${data.audit_log.length} records logged`;
+    countEl.textContent = `${data.audit_log.length} logged`;
     tbody.innerHTML = data.audit_log.map(item => `
-      <tr class="hover:bg-[#161F33]/50 transition">
-        <td class="py-2 px-3 text-slate-400">${item.timestamp}</td>
-        <td class="py-2 px-3 font-sans font-medium text-slate-200">${item.image_name}</td>
-        <td class="py-2 px-3 font-sans text-slate-300">${item.defect_type}</td>
-        <td class="py-2 px-3 text-blue-400">${item.confidence}</td>
-        <td class="py-2 px-3">
-          <span class="px-2 py-0.5 rounded text-[10px] font-sans font-semibold ${
-            item.operator_decision === 'Approved' ? 'bg-emerald-500/20 text-emerald-400' :
-            item.operator_decision === 'Rejected' ? 'bg-rose-500/20 text-rose-400' :
-            'bg-amber-500/20 text-amber-400'
-          }">
-            ${item.operator_decision}
-          </span>
+      <tr class="hover:bg-[#19191b] transition-colors">
+        <td class="py-2 px-3 text-[#85858b] font-mono">${item.timestamp}</td>
+        <td class="py-2 px-3 font-sans text-[#ededed]">${item.image_name}</td>
+        <td class="py-2 px-3 font-sans text-[#a1a1a6]">${item.defect_type}</td>
+        <td class="py-2 px-3 text-[#ededed] font-mono">${item.confidence}</td>
+        <td class="py-2 px-3 font-mono text-xs ${
+          item.operator_decision === 'Approved' ? 'text-[#4cc38a]' :
+          item.operator_decision === 'Rejected' ? 'text-[#e5484d]' :
+          'text-[#f59e0b]'
+        }">
+          ${item.operator_decision}
         </td>
-        <td class="py-2 px-3 font-sans text-slate-400">${item.notes}</td>
+        <td class="py-2 px-3 font-sans text-[#85858b]">${item.notes}</td>
       </tr>
     `).join('');
   } catch (err) {
-    console.error('Failed to fetch audit log:', err);
+    console.error('Audit fetch error:', err);
   }
 }
 
 function exportAuditCsv() {
   window.location.href = '/api/audit/export.csv';
-  showToast('Downloading operator audit report...', 'info');
+  showToast('Downloading audit log CSV', 'info');
 }
 
 // ==============================================================================
@@ -653,32 +622,19 @@ function showToast(message, type = 'info') {
   toast.className = 'toast';
 
   let iconName = 'info';
-  let iconColor = 'text-blue-400';
-  if (type === 'success') {
-    iconName = 'check-circle';
-    iconColor = 'text-emerald-400';
-  } else if (type === 'warn') {
-    iconName = 'alert-triangle';
-    iconColor = 'text-amber-400';
-  } else if (type === 'error') {
-    iconName = 'alert-circle';
-    iconColor = 'text-rose-400';
-  }
+  if (type === 'warn') iconName = 'alert-triangle';
 
   toast.innerHTML = `
-    <i data-lucide="${iconName}" class="w-4 h-4 ${iconColor} shrink-0"></i>
-    <span class="flex-1">${message}</span>
+    <i data-lucide="${iconName}" class="w-4 h-4 stroke-[1.5] text-[#85858b] shrink-0"></i>
+    <span class="text-xs text-[#ededed]">${message}</span>
   `;
 
   container.appendChild(toast);
   if (window.lucide) lucide.createIcons();
 
-  // Animate in
   setTimeout(() => toast.classList.add('show'), 10);
-
-  // Auto remove after 3.5s
   setTimeout(() => {
     toast.classList.remove('show');
-    setTimeout(() => toast.remove(), 300);
-  }, 3500);
+    setTimeout(() => toast.remove(), 250);
+  }, 3000);
 }
