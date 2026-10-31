@@ -306,6 +306,28 @@ def get_catalog_presets():
     return {"presets": presets}
 
 
+@app.get("/api/catalog/queue")
+def get_catalog_queue():
+    """
+    Returns the complete conveyor sequence of held-out test specimens (44 items)
+    with item indices, image paths, filenames, and ground-truth categories.
+    Enables continuous conveyor progression whenever an operator decision is logged.
+    """
+    test_items = dm.get_fixed_test_items()
+    queue = []
+    for idx, it in enumerate(test_items):
+        img_p, lbl, dt = it
+        p_obj = Path(img_p)
+        queue.append({
+            "index": idx,
+            "filename": p_obj.name,
+            "img_path": img_p,
+            "category": dt.replace("_", " ").title() if lbl == 1 else "Flawless",
+            "is_defective": bool(lbl == 1)
+        })
+    return {"total": len(queue), "queue": queue}
+
+
 class InspectRequest(BaseModel):
     img_path: Optional[str] = None
     sensitivity: Optional[float] = None

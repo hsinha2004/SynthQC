@@ -194,8 +194,11 @@
             </div>
 
             <!-- Operator Action -->
-            <div class="pt-3 border-t border-[rgba(237,237,237,0.08)] space-y-2">
-              <div class="text-xs text-[#85858b]">Operator clearance</div>
+            <div class="pt-3 border-t border-[rgba(237,237,237,0.08)] space-y-2.5">
+              <div class="flex items-center justify-between text-xs text-[#85858b]">
+                <span>Operator clearance</span>
+                <span class="font-mono text-xs text-[#a1a1a6]" id="queue-position-indicator">Specimen 1 of 44</span>
+              </div>
               <div class="grid grid-cols-3 gap-2">
                 <button onclick="logOperatorDecision('Approved')" class="btn-neutral justify-center hover:text-[#4cc38a]">
                   <i data-lucide="check" class="w-3.5 h-3.5 stroke-[1.5]"></i>
@@ -209,6 +212,23 @@
                   <i data-lucide="alert-circle" class="w-3.5 h-3.5 stroke-[1.5]"></i>
                   <span>Audit</span>
                 </button>
+              </div>
+
+              <!-- Conveyor Progression & Auto-Advance Controls -->
+              <div class="flex items-center justify-between pt-1 text-xs text-[#85858b]">
+                <div class="flex items-center gap-1.5">
+                  <button onclick="navigateQueue(-1)" title="Previous specimen" class="p-1 rounded hover:bg-[#232325] text-[#a1a1a6]">
+                    <i data-lucide="chevron-left" class="w-3.5 h-3.5 stroke-[1.5]"></i>
+                  </button>
+                  <button onclick="navigateQueue(1)" title="Next specimen (skip)" class="p-1 rounded hover:bg-[#232325] text-[#a1a1a6]">
+                    <i data-lucide="chevron-right" class="w-3.5 h-3.5 stroke-[1.5]"></i>
+                  </button>
+                  <span>Queue advance</span>
+                </div>
+                <label class="flex items-center gap-1.5 cursor-pointer text-[#a1a1a6]">
+                  <input type="checkbox" id="auto-advance-toggle" checked class="accent-[#3b82f6] rounded">
+                  <span>Auto-advance conveyor</span>
+                </label>
               </div>
             </div>
           </div>

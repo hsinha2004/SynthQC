@@ -10,6 +10,8 @@ const state = {
   activeInspection: null,
   inspectionViewMode: 'clean', // 'clean' or 'heatmap'
   catalogPresets: {},
+  conveyorQueue: [],
+  queueIndex: 0,
   studioParams: {
     flawCategory: 'broken_large',
     preset: 'rim',
@@ -28,10 +30,14 @@ const state = {
 document.addEventListener('DOMContentLoaded', async () => {
   await refreshSystemStatus();
   await loadCatalogPresets();
+  await loadCatalogQueue();
   setupAnalyticsChart();
   startBackgroundJobPolling();
 
-  if (state.catalogPresets['preset_large']) {
+  // Load first specimen from conveyor queue
+  if (state.conveyorQueue.length > 0) {
+    inspectQueueItem(0);
+  } else if (state.catalogPresets['preset_large']) {
     loadSamplePreset('preset_large');
   } else {
     generateStudioSample();
@@ -130,8 +136,58 @@ async function deployModel(modelKey) {
 }
 
 // ==============================================================================
-// Station 1: Live Inspection
+// Station 1: Live Inspection & Conveyor Queue
 // ==============================================================================
+
+async function loadCatalogQueue() {
+  try {
+    const res = await fetch('/api/catalog/queue');
+    const data = await res.json();
+    state.conveyorQueue = data.queue || [];
+    updateQueueIndicator();
+  } catch (err) {
+    console.error('Queue load error:', err);
+  }
+}
+
+function updateQueueIndicator() {
+  const el = document.getElementById('queue-position-indicator');
+  if (!el || state.conveyorQueue.length === 0) return;
+  el.textContent = `Specimen ${state.queueIndex + 1} of ${state.conveyorQueue.length}`;
+}
+
+async function inspectQueueItem(index) {
+  if (state.conveyorQueue.length === 0) return;
+
+  state.queueIndex = (index + state.conveyorQueue.length) % state.conveyorQueue.length;
+  updateQueueIndicator();
+
+  const item = state.conveyorQueue[state.queueIndex];
+  if (!item) return;
+
+  const loading = document.getElementById('inspect-loading');
+  loading.classList.remove('hidden');
+
+  try {
+    const res = await fetch('/api/inspect', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ img_path: item.img_path })
+    });
+    const result = await res.json();
+    renderInspectionResult(result);
+  } catch (err) {
+    showToast('Inspection request failed', 'warn');
+  } finally {
+    loading.classList.add('hidden');
+  }
+}
+
+async function navigateQueue(direction) {
+  if (state.conveyorQueue.length === 0) return;
+  const nextIdx = (state.queueIndex + direction + state.conveyorQueue.length) % state.conveyorQueue.length;
+  await inspectQueueItem(nextIdx);
+}
 
 async function loadCatalogPresets() {
   try {
@@ -148,6 +204,13 @@ async function loadCatalogPresets() {
 async function loadSamplePreset(presetId) {
   const preset = state.catalogPresets[presetId];
   if (!preset) return;
+
+  // Align queue index if preset matches an item in the queue
+  const matchIdx = state.conveyorQueue.findIndex(q => q.img_path === preset.img_path);
+  if (matchIdx !== -1) {
+    state.queueIndex = matchIdx;
+    updateQueueIndicator();
+  }
 
   const loading = document.getElementById('inspect-loading');
   loading.classList.remove('hidden');
@@ -275,8 +338,17 @@ async function logOperatorDecision(decision) {
     });
     const data = await res.json();
     if (data.success) {
-      showToast(`Logged disposition: ${decision}`, 'info');
       refreshAuditLog();
+
+      // Check auto-advance setting
+      const autoAdvance = document.getElementById('auto-advance-toggle')?.checked ?? true;
+      if (autoAdvance && state.conveyorQueue.length > 0) {
+        const nextIdx = (state.queueIndex + 1) % state.conveyorQueue.length;
+        showToast(`${decision} logged — Conveyor advanced to #${nextIdx + 1}/${state.conveyorQueue.length}`, 'info');
+        await inspectQueueItem(nextIdx);
+      } else {
+        showToast(`Logged disposition: ${decision}`, 'info');
+      }
     }
   } catch (err) {
     showToast('Failed to record disposition', 'warn');
