@@ -1,11 +1,11 @@
 """
-SynthQC - AI-Assisted Visual Quality Inspection Web Application
-Single multi-tab Streamlit application:
-1. 📦 Dataset View
-2. 🧪 Synthetic Defect Lab
-3. ⚡ Training View (Multi-Arm with Scarcity Simulation & Zero Leakage)
-4. 🔍 Inspection View (Inference, Grad-CAM Explainability & Human QA Station)
-5. 📊 Dashboard View (Objective Metrics, Data-Efficiency Curves & QA Audit)
+SynthQC - AI-Assisted Visual Quality Inspection Web Application (Advanced Edition)
+Features:
+1. 📦 Dataset View & Partition Explorer
+2. 🧪 Synthetic Defect Studio (Interactive Placement, Procedural Poisson & Patch cGAN)
+3. ⚡ Multi-Arm Training (Defect Scarcity Simulation & Zero Leakage)
+4. 🔍 Live Inspection & Batch QA (Grad-CAM Heatmaps, IoU Localization, Human QA Station)
+5. 📊 Data Efficiency & Decision Threshold Dashboard (Dynamic Threshold Tuner & ROC Curve)
 """
 
 import os
@@ -13,6 +13,7 @@ import sys
 import time
 import json
 import random
+import io
 from pathlib import Path
 from datetime import datetime
 import numpy as np
@@ -20,6 +21,7 @@ import pandas as pd
 import cv2
 from PIL import Image
 import torch
+import matplotlib.pyplot as plt
 
 import streamlit as st
 
@@ -37,8 +39,14 @@ from config import (
     THEME_PRIMARY, THEME_SUCCESS, THEME_WARNING, THEME_DANGER, THEME_BG, THEME_CARD
 )
 from data_manager import DataManager, get_transforms
-from synthetic_generator import ProceduralGenerator, PatchGANTrainer, extract_defect_patches
-from models import create_model, GradCAM, ExperimentRunner, run_sanity_check, train_single_run
+from synthetic_generator import (
+    ProceduralGenerator, PatchGANTrainer, extract_defect_patches,
+    inject_interactive_sample
+)
+from models import (
+    create_model, GradCAM, ExperimentRunner, run_sanity_check,
+    train_single_run, evaluate_at_threshold, batch_inspect_images
+)
 
 # Initialize Session State
 if "data_manager" not in st.session_state:
@@ -64,7 +72,7 @@ if "trained_models" not in st.session_state:
     if model_path.exists():
         try:
             m = create_model()
-            m.load_state_dict(torch.load(model_path, map_location=DEVICE))
+            m.load_state_dict(torch.load(model_path, map_location=DEVICE, weights_only=True))
             m.eval()
             st.session_state.trained_models["Arm A (Real Only) [100%]"] = m
         except Exception as e:
@@ -79,40 +87,43 @@ if "active_grad_cam" not in st.session_state:
 if "sanity_check_status" not in st.session_state:
     st.session_state.sanity_check_status = None
 
+if "operating_threshold" not in st.session_state:
+    st.session_state.operating_threshold = 0.50
+
 dm = st.session_state.data_manager
 runner = st.session_state.experiment_runner
 
 # ==============================================================================
-# CSS & Styling (Applied subtly for clean industrial UI)
+# CSS & Styling
 # ==============================================================================
 
 st.markdown(f"""
 <style>
     .main-header {{
-        font-size: 2.2rem;
+        font-size: 2.1rem;
         font-weight: 700;
         letter-spacing: -0.5px;
         margin-bottom: 0.2rem;
     }}
     .sub-header {{
         color: #8E9BB0;
-        font-size: 1.05rem;
-        margin-bottom: 1.5rem;
+        font-size: 1.0rem;
+        margin-bottom: 1.2rem;
     }}
     .stat-card {{
         background: {THEME_CARD};
-        padding: 1.2rem;
+        padding: 1.1rem;
         border-radius: 10px;
         border: 1px solid rgba(255,255,255,0.08);
         text-align: center;
     }}
     .stat-val {{
-        font-size: 1.8rem;
+        font-size: 1.7rem;
         font-weight: 700;
         color: {THEME_PRIMARY};
     }}
     .stat-lbl {{
-        font-size: 0.85rem;
+        font-size: 0.8rem;
         color: #94A3B8;
         text-transform: uppercase;
         letter-spacing: 0.5px;
@@ -135,12 +146,21 @@ st.markdown(f"""
         border: 1px solid {THEME_SUCCESS};
         display: inline-block;
     }}
+    .badge-pill {{
+        background: rgba(0, 240, 255, 0.12);
+        color: {THEME_PRIMARY};
+        padding: 0.2rem 0.6rem;
+        border-radius: 12px;
+        font-size: 0.8rem;
+        font-weight: 600;
+        border: 1px solid rgba(0, 240, 255, 0.3);
+    }}
 </style>
 """, unsafe_allow_html=True)
 
 
 # ==============================================================================
-# Sidebar & Header
+# Sidebar
 # ==============================================================================
 
 st.sidebar.title("🔬 SynthQC")
@@ -148,26 +168,30 @@ st.sidebar.caption("AI-Assisted Visual Quality Inspection Prototype")
 st.sidebar.markdown("---")
 
 st.sidebar.subheader("System Configuration")
-st.sidebar.write(f"**Target Category:** `{PRODUCT_CATEGORY}` (MVTec AD)")
+st.sidebar.write(f"**Target Category:** `{PRODUCT_CATEGORY}`")
 st.sidebar.write(f"**Hardware Device:** `{DEVICE}`")
+cgan_ready = Path("saved_models/patch_cgan_gen.pt").exists()
+st.sidebar.markdown(f"**Patch cGAN:** <span class='badge-pill'>{'Ready' if cgan_ready else 'Unsaved'}</span>", unsafe_allow_html=True)
 st.sidebar.write(f"**License:** Academic Non-Commercial (CC BY-NC-SA 4.0)")
 
-# Quick dataset stats in sidebar
 counts = dm.get_subtype_counts()
 st.sidebar.markdown("---")
 st.sidebar.subheader("Data Partitioning")
 st.sidebar.write(f"• **Train Good:** {counts.get('train_good', 0)}")
 held_out = counts.get("held_out_test", {})
 pool = counts.get("training_pool", {})
-st.sidebar.write(f"• **Held-out Test Defective:** {sum(v for k, v in held_out.items() if k != 'good')} (8 each)")
+st.sidebar.write(f"• **Quarantined Test Defects:** {sum(v for k, v in held_out.items() if k != 'good')} (8 each)")
 st.sidebar.write(f"• **Remaining Training Defects:** {sum(pool.values())}")
-st.sidebar.write(f"• **Held-out Test Good:** {held_out.get('good', 0)}")
+st.sidebar.write(f"• **Quarantined Test Good:** {held_out.get('good', 0)}")
+
+st.sidebar.markdown("---")
+st.sidebar.markdown("[🔗 GitHub Repository](https://github.com/hsinha2004/SynthQC)")
 
 tabs = st.tabs([
     "📦 1. Dataset View",
-    "🧪 2. Synthetic Defect Lab",
+    "🧪 2. Synthetic Defect Studio",
     "⚡ 3. Training View",
-    "🔍 4. Inspection View",
+    "🔍 4. Inspection & QA",
     "📊 5. Quality Dashboard"
 ])
 
@@ -241,110 +265,142 @@ with tabs[0]:
 
 
 # ==============================================================================
-# TAB 2: SYNTHETIC DEFECT LAB
+# TAB 2: SYNTHETIC DEFECT STUDIO
 # ==============================================================================
 with tabs[1]:
-    st.markdown('<div class="main-header">Synthetic Defect Generation Lab</div>', unsafe_allow_html=True)
-    st.markdown('<div class="sub-header">Generate procedural (cut-paste/Poisson) or experimental patch-GAN defects strictly from allotted training samples (zero test leakage).</div>', unsafe_allow_html=True)
+    st.markdown('<div class="main-header">Synthetic Defect Studio</div>', unsafe_allow_html=True)
+    st.markdown('<div class="sub-header">Interactive placement controls, Poisson blending, 64x64 patch cGAN, and 3-way visual comparisons.</div>', unsafe_allow_html=True)
 
-    gen_col1, gen_col2 = st.columns([1, 2])
+    studio_mode = st.radio(
+        "Studio Mode:",
+        ["🎯 Interactive Placement Studio", "🎲 Automated Batch Generator", "⚔️ 3-Way Generator Showdown (Real vs Proc vs GAN)"],
+        horizontal=True
+    )
 
-    with gen_col1:
-        st.subheader("Generation Settings")
-        tier_mode = st.radio(
-            "Generator Tier:",
-            ["Tier A: Procedural Poisson Blend (Baseline)", "Tier B: 64x64 Patch cGAN (Experimental)"]
-        )
+    good_imgs = dm.get_train_good_images()
 
-        allotted_frac = st.select_slider(
-            "Allotted Real Defect Fraction:",
-            options=[0.10, 0.25, 0.50, 1.0],
-            value=0.25,
-            format_func=lambda x: f"{int(x*100)}% ({max(1, int(round(39*x)))} real images)"
-        )
-        split_seed = st.number_input("Split Seed (for allotted subset):", value=42, step=1)
+    if studio_mode == "🎯 Interactive Placement Studio":
+        s_col1, s_col2 = st.columns([1, 2])
 
-        allotted_for_lab = dm.sample_training_defects(allotted_frac, int(split_seed))
-        st.info(f"🔒 **Zero Leakage Active**: Only {len(allotted_for_lab)} real defect images from the training pool are accessible to this generator. Held-out test set is strictly quarantined.")
-
-        if "Procedural" in tier_mode:
-            blend_mode = st.selectbox(
-                "Blending Method:",
-                ["poisson_normal", "poisson_mixed", "alpha"]
+        with s_col1:
+            st.subheader("Studio Controls")
+            studio_frac = st.select_slider(
+                "Allotted Defect Source Pool:",
+                options=[0.10, 0.25, 0.50, 1.0],
+                value=0.25,
+                format_func=lambda x: f"{int(x*100)}% ({max(1, int(round(39*x)))} real images)"
             )
-            scale_min, scale_max = st.slider("Scale Range:", 0.5, 1.5, (0.8, 1.2))
-            rot_limit = st.slider("Max Rotation Angle (degrees):", 0, 45, 25)
-            opacity = st.slider("Blend Opacity (Alpha fallback):", 0.5, 1.0, 1.0)
-        else:
-            st.warning("⚠️ **Tier B is an experimental stretch goal.** Trains a 64x64 U-Net + PatchGAN on cropped defect patches. Generated quality will be evaluated honestly.")
-            gan_epochs = st.slider("GAN Training Epochs (CPU):", 5, 20, 8)
-            train_gan_btn = st.button("Train / Verify 64x64 Patch GAN")
+            allotted_defects = dm.sample_training_defects(studio_frac, 42)
+            st.caption(f"🔒 Zero-leakage: drawing from {len(allotted_defects)} allotted training defect images.")
 
-    with gen_col2:
-        st.subheader("Generation Preview & Source Traceability")
-        good_imgs = dm.get_train_good_images()
+            proc_gen = ProceduralGenerator(allotted_defects, good_imgs)
 
-        if "Procedural" in tier_mode:
-            proc_gen = ProceduralGenerator(allotted_for_lab, good_imgs)
+            chosen_blend = st.selectbox("Blending Method:", ["poisson_normal", "poisson_mixed", "alpha"])
+            pos_x = st.slider("X Position (Center Coordinate):", 120, 380, 250, step=5)
+            pos_y = st.slider("Y Position (Center Coordinate):", 120, 380, 250, step=5)
+            scale_val = st.slider("Patch Scale:", 0.5, 1.6, 1.0, step=0.05)
+            rot_val = st.slider("Rotation Angle (degrees):", -180, 180, 0, step=5)
+            feather_val = st.slider("Edge Feathering Radius:", 3, 25, 11, step=2)
 
-            preview_btn = st.button("🎲 Generate Single Procedural Preview")
-            if preview_btn or "last_proc_preview" not in st.session_state:
-                synth_rgb, synth_mask, dtype = proc_gen.generate_single(
-                    blend_mode=blend_mode,
-                    scale_range=(scale_min, scale_max),
-                    rotation_max=rot_limit,
-                    opacity=opacity
-                )
-                st.session_state.last_proc_preview = (synth_rgb, synth_mask, dtype)
+            patch_idx = st.number_input("Select Patch Index:", min_value=0, max_value=max(0, len(proc_gen.patches) - 1), value=0)
+            good_idx = st.number_input("Select Base Good Image Index:", min_value=0, max_value=max(0, len(good_imgs) - 1), value=0)
 
-            if "last_proc_preview" in st.session_state:
-                s_rgb, s_mask, s_dtype = st.session_state.last_proc_preview
-                if s_rgb is not None:
-                    p_c1, p_c2 = st.columns(2)
-                    with p_c1:
-                        st.image(s_rgb, caption=f"Synthetic Defect Image (Subtype: {s_dtype})", use_container_width=True)
-                    with p_c2:
-                        st.image(s_mask, caption="Synthetic Ground Truth Mask", use_container_width=True)
+        with s_col2:
+            st.subheader("Live Studio Synthesis Preview")
+            synth_rgb, synth_mask, dtype, meta = proc_gen.generate_single(
+                blend_mode=chosen_blend,
+                manual_coords=(pos_x, pos_y),
+                patch_idx=patch_idx,
+                good_img_idx=good_idx,
+                explicit_scale=scale_val,
+                explicit_rotation=rot_val,
+                feather_radius=feather_val
+            )
+
+            if synth_rgb is not None:
+                p1, p2, p3, p4 = st.columns(4)
+                with p1:
+                    st.image(meta["good_rgb"], caption="1. Clean Base Product", use_container_width=True)
+                with p2:
+                    st.image(meta["patch_img"], caption=f"2. Defect Patch ({dtype})", use_container_width=True)
+                with p3:
+                    st.image(synth_rgb, caption="3. Blended Defective Result", use_container_width=True)
+                with p4:
+                    st.image(synth_mask, caption="4. Pixel Defect Mask", use_container_width=True)
+
+                st.markdown("---")
+                if st.button("📥 Add Sample Directly to Synthetic Training Pool", type="primary"):
+                    p_img, p_mask = inject_interactive_sample(synth_rgb, synth_mask, prefix="studio_interactive")
+                    st.success(f"Sample added to pool! (`{Path(p_img).name}`)")
+
+    elif studio_mode == "🎲 Automated Batch Generator":
+        b_col1, b_col2 = st.columns([1, 2])
+        with b_col1:
+            st.subheader("Batch Generation Parameters")
+            b_frac = st.select_slider("Allotted Pool Fraction:", options=[0.10, 0.25, 0.50, 1.0], value=0.50)
+            b_count = st.slider("Number of Synthetic Samples to Generate:", 5, 50, 20)
+            b_blend = st.selectbox("Batch Blending Mode:", ["poisson_normal", "poisson_mixed", "alpha"])
+            b_seed = st.number_input("Random Seed:", value=42, step=1)
+            b_gen_btn = st.button("🚀 Generate Synthetic Batch", type="primary")
+
+        with b_col2:
+            st.subheader("Batch Generation Output")
+            if b_gen_btn:
+                allotted_defects = dm.sample_training_defects(b_frac, b_seed)
+                proc_gen = ProceduralGenerator(allotted_defects, good_imgs)
+                out_dir = dm.synthetic_dir / f"batch_gen_{b_seed}"
+
+                with st.spinner(f"Generating {b_count} synthetic defect samples..."):
+                    paths = proc_gen.generate_batch(b_count, out_dir, prefix="batch_synth", rng_seed=b_seed)
+
+                st.success(f"Generated {len(paths)} synthetic defective images and masks in `{out_dir.name}`!")
+
+                # Display preview grid
+                preview_paths = paths[:6]
+                g_cols = st.columns(min(len(preview_paths), 3))
+                for i, p in enumerate(preview_paths):
+                    col = g_cols[i % len(g_cols)]
+                    col.image(p, caption=Path(p).name, use_container_width=True)
+
+    elif studio_mode == "⚔️ 3-Way Generator Showdown (Real vs Proc vs GAN)":
+        st.subheader("Generator Comparison: Real vs. Procedural Poisson vs. 64x64 Patch cGAN")
+        st.caption("Inspect how the different defect synthesis methods compare against an authentic real defective product.")
+
+        allotted_defects = dm.sample_training_defects(1.0, 42)
+        proc_gen = ProceduralGenerator(allotted_defects, good_imgs)
+        gan_trainer = PatchGANTrainer(allotted_defects, good_imgs)
+        cgan_loaded = gan_trainer.load_pretrained("saved_models/patch_cgan_gen.pt")
+
+        c1, c2, c3 = st.columns(3)
+        # 1. Real Defect
+        with c1:
+            st.markdown("#### 1. Real Defect (Ground Truth)")
+            if allotted_defects:
+                sample_real = allotted_defects[0]
+                st.image(sample_real["img_path"], caption=f"Real Defect: {sample_real['defect_type']}", use_container_width=True)
+                if sample_real.get("mask_path") and os.path.exists(sample_real["mask_path"]):
+                    st.image(sample_real["mask_path"], caption="Real Ground-Truth Mask", use_container_width=True)
+
+        # 2. Procedural Poisson Defect
+        with c2:
+            st.markdown("#### 2. Tier A: Procedural Poisson Blend")
+            s_proc, s_mask_proc, p_type, _ = proc_gen.generate_single(blend_mode="poisson_normal")
+            if s_proc is not None:
+                st.image(s_proc, caption=f"Procedural Defect: {p_type}", use_container_width=True)
+                st.image(s_mask_proc, caption="Procedural Synthetic Mask", use_container_width=True)
+
+        # 3. Patch cGAN Defect
+        with c3:
+            st.markdown("#### 3. Tier B: 64x64 Patch cGAN (Experimental)")
+            if cgan_loaded:
+                s_gan, s_mask_gan, gan_meta = gan_trainer.generate_full_synthetic_image(good_imgs[0])
+                if s_gan is not None:
+                    st.image(s_gan, caption="Patch cGAN Composite", use_container_width=True)
+                    st.image(s_mask_gan, caption="cGAN Defect Mask", use_container_width=True)
                 else:
-                    st.error("Could not generate synthetic image. Check source images.")
-
-        else:
-            # Tier B Patch cGAN
-            if "gan_trainer_state" not in st.session_state:
-                st.session_state.gan_trainer_state = None
-
-            if train_gan_btn:
-                with st.spinner("Training 64x64 Patch cGAN on allotted defect patches..."):
-                    trainer = PatchGANTrainer(allotted_for_lab, good_imgs)
-                    res = trainer.train_quick(epochs=gan_epochs)
-                    st.session_state.gan_trainer_state = (trainer, res)
-
-            if st.session_state.gan_trainer_state is not None:
-                trainer, res = st.session_state.gan_trainer_state
-                st.write(f"**GAN Status:** `{res['status']}`")
-                st.write(f"**Diagnostic Check:** {res['diagnostic_message']}")
-
-                if res["is_degenerate"]:
-                    st.error("🚨 **Honest Failure Report:** The GAN generated degenerate / collapsed patches. In accordance with project requirements, these will not be silently included as valid synthetic training samples.")
-                else:
-                    st.success("✅ **Quality Check Passed:** Patch spatial variance is non-degenerate.")
-
-                # Show sample generated patch
-                sample_p_btn = st.button("Generate Test Patch Sample")
-                if sample_p_btn:
-                    # Pick sample
-                    if trainer.patches:
-                        sample_p = trainer.patches[0]
-                        dummy_good = np.full((64, 64, 3), 180, dtype=np.uint8)
-                        gen_patch = trainer.sample_patch(dummy_good, sample_p["patch_mask"])
-
-                        c_g1, c_g2, c_g3 = st.columns(3)
-                        with c_g1:
-                            st.image(sample_p["patch_img"], caption="Real Source Patch", width=128)
-                        with c_g2:
-                            st.image(sample_p["patch_mask"], caption="Defect Mask", width=128)
-                        with c_g3:
-                            st.image(gen_patch, caption="cGAN Generated Patch", width=128)
+                    st.info("Could not composite cGAN image.")
+            else:
+                st.warning("Pre-trained cGAN model not found. Train in Tab 3 or check saved_models/patch_cgan_gen.pt.")
 
 
 # ==============================================================================
@@ -376,7 +432,6 @@ with tabs[2]:
         train_arm_c = st.checkbox("Arm C (Real + Patch-GAN Synthetic)", value=False)
 
         st.markdown("---")
-        # Sanity Check Button
         sanity_btn = st.button("🧪 Run Arm A Sanity Check First")
         train_btn = st.button("🚀 Train Selected Arms", type="primary")
 
@@ -425,18 +480,16 @@ with tabs[2]:
                         progress_callback=cb
                     )
 
-                    # Store in session state
                     st.session_state.benchmark_results.append(res)
                     st.session_state.trained_models[f"{arm_name} [{int(train_frac*100)}%]"] = res["best_model"]
 
                 progress_bar.progress(1.0)
                 status_text.success("🎉 All selected training runs completed successfully!")
 
-        # Display currently trained models and recent runs
         if st.session_state.benchmark_results:
             st.markdown("#### Completed Benchmark Runs")
             display_rows = []
-            for r in st.session_state.benchmark_results[-6:]:
+            for r in st.session_state.benchmark_results[-8:]:
                 display_rows.append({
                     "Arm": r["arm_name"],
                     "Real Data %": f"{int(r['fraction']*100)}%",
@@ -451,157 +504,260 @@ with tabs[2]:
 
 
 # ==============================================================================
-# TAB 4: INSPECTION VIEW & GRAD-CAM
+# TAB 4: INSPECTION & QA STATION
 # ==============================================================================
 with tabs[3]:
     st.markdown('<div class="main-header">Live Inspection & Explainability</div>', unsafe_allow_html=True)
-    st.markdown('<div class="sub-header">Run product images through trained models, inspect Grad-CAM attention localization, and submit human QA reviews.</div>', unsafe_allow_html=True)
+    st.markdown('<div class="sub-header">Run product images through trained models, inspect Grad-CAM attention localization with IoU scores, and record human QA audits.</div>', unsafe_allow_html=True)
 
-    ins_col1, ins_col2 = st.columns([1, 2])
+    inspect_mode = st.radio(
+        "Inspection Scope:",
+        ["🔍 Single Image Detailed Inspection", "📑 Batch Test Inspection Grid"],
+        horizontal=True
+    )
 
-    with ins_col1:
-        st.subheader("Inspection Controls")
+    avail_models = list(st.session_state.trained_models.keys())
+    if not avail_models:
+        st.info("⚠️ No custom trained models yet in session. Defaulting to pre-trained ResNet18 baseline.")
+        selected_model_name = "Baseline Pretrained ResNet18"
+        active_model = create_model()
+    else:
+        selected_model_name = st.selectbox("Active Inspection Model:", avail_models)
+        active_model = st.session_state.trained_models[selected_model_name]
 
-        avail_models = list(st.session_state.trained_models.keys())
-        if not avail_models:
-            st.info("⚠️ No custom trained models yet in session. Defaulting to pre-trained ResNet18 baseline.")
-            selected_model_name = "Baseline Pretrained ResNet18"
-            active_model = create_model()
-        else:
-            selected_model_name = st.selectbox("Select Inspection Model:", avail_models)
-            active_model = st.session_state.trained_models[selected_model_name]
+    test_items = dm.get_fixed_test_items()
 
-        img_source = st.radio("Image Source:", ["Select from Held-Out Test Set", "Upload Custom Image"])
+    if inspect_mode == "🔍 Single Image Detailed Inspection":
+        ins_col1, ins_col2 = st.columns([1, 2])
 
-        test_items = dm.get_fixed_test_items()
-        selected_img_path = None
-        ground_truth_label = None
+        with ins_col1:
+            st.subheader("Image Selection")
+            img_source = st.radio("Source:", ["Select from Quarantined Held-Out Test Set", "Upload Custom Image"])
 
-        if img_source == "Select from Held-Out Test Set":
-            test_subtypes = sorted(list(set(it[2] for it in test_items)))
-            sel_st = st.selectbox("Subtype Filter:", test_subtypes)
-            matching = [it for it in test_items if it[2] == sel_st]
-            sel_idx = st.slider("Select Sample Index:", 0, len(matching) - 1, 0)
-            selected_img_path = matching[sel_idx][0]
-            ground_truth_label = "Defective" if matching[sel_idx][1] == 1 else "Normal (Good)"
-        else:
-            uploaded = st.file_uploader("Upload Product Image:", type=["png", "jpg", "jpeg"])
-            if uploaded:
-                save_path = dm.category_dir / f"custom_upload_{uploaded.name}"
-                with open(save_path, "wb") as f:
-                    f.write(uploaded.read())
-                selected_img_path = str(save_path)
-                ground_truth_label = "Unknown (User Upload)"
+            selected_img_path = None
+            ground_truth_label = None
+            mask_path_for_iou = None
 
-        run_inspect_btn = st.button("🔍 Run Visual Inspection", type="primary")
+            if img_source == "Select from Quarantined Held-Out Test Set":
+                test_subtypes = sorted(list(set(it[2] for it in test_items)))
+                sel_st = st.selectbox("Subtype Filter:", test_subtypes)
+                matching = [it for it in test_items if it[2] == sel_st]
+                sel_idx = st.slider("Sample Index:", 0, len(matching) - 1, 0)
+                selected_img_path = matching[sel_idx][0]
+                ground_truth_label = "Defective" if matching[sel_idx][1] == 1 else "Normal (Good)"
 
-    with ins_col2:
-        st.subheader("Inference Result & Localization")
+                # Find mask path if defective
+                if matching[sel_idx][1] == 1:
+                    stem = Path(selected_img_path).stem
+                    possible_mask = dm.gt_dir / sel_st / f"{stem}_mask.png"
+                    if possible_mask.exists():
+                        mask_path_for_iou = str(possible_mask)
+            else:
+                uploaded = st.file_uploader("Upload Product Image:", type=["png", "jpg", "jpeg"])
+                if uploaded:
+                    save_path = dm.category_dir / f"custom_upload_{uploaded.name}"
+                    with open(save_path, "wb") as f:
+                        f.write(uploaded.read())
+                    selected_img_path = str(save_path)
+                    ground_truth_label = "Unknown (User Upload)"
 
-        if selected_img_path and os.path.exists(selected_img_path):
-            img_pil = Image.open(selected_img_path).convert("RGB")
-            orig_rgb = np.array(img_pil)
+            run_inspect_btn = st.button("🔍 Run Visual Inspection", type="primary")
 
-            # Perform Inference
-            t_img = get_transforms(is_train=False)(img_pil).unsqueeze(0).to(DEVICE)
-            active_model.eval()
+        with ins_col2:
+            st.subheader("Inference Result & Grad-CAM Localization")
 
-            with torch.no_grad():
-                output = active_model(t_img)
-                probs = torch.softmax(output, dim=1)[0].cpu().numpy()
-                pred_class = int(np.argmax(probs))
-                defect_prob = float(probs[1])
+            if selected_img_path and os.path.exists(selected_img_path):
+                img_pil = Image.open(selected_img_path).convert("RGB")
+                orig_rgb = np.array(img_pil)
 
-            # Grad-CAM
-            grad_cam = GradCAM(active_model)
-            cam = grad_cam.generate_heatmap(t_img, class_idx=1)
-            overlay = grad_cam.overlay_heatmap(orig_rgb, cam, alpha=0.55)
+                t_img = get_transforms(is_train=False)(img_pil).unsqueeze(0).to(DEVICE)
+                active_model.eval()
 
-            # Display Status Badge
-            r_col1, r_col2 = st.columns(2)
-            with r_col1:
-                if pred_class == 1 or defect_prob >= 0.5:
-                    st.markdown(f'<div class="flag-defect">🚨 DEFECT FLAGGED (Defect Prob: {defect_prob*100:.1f}%)</div>', unsafe_allow_html=True)
-                else:
-                    st.markdown(f'<div class="flag-pass">✅ PASS / NORMAL (Good Prob: {(1.0-defect_prob)*100:.1f}%)</div>', unsafe_allow_html=True)
+                with torch.no_grad():
+                    output = active_model(t_img)
+                    probs = torch.softmax(output, dim=1)[0].cpu().numpy()
+                    pred_class = int(np.argmax(probs))
+                    defect_prob = float(probs[1])
 
-            with r_col2:
-                st.write(f"**Ground Truth:** `{ground_truth_label}`")
-                st.write(f"**Model Used:** `{selected_model_name}`")
+                grad_cam = GradCAM(active_model)
+                cam = grad_cam.generate_heatmap(t_img, class_idx=1)
+                overlay = grad_cam.overlay_heatmap(orig_rgb, cam, alpha=0.55)
+                iou_res = grad_cam.compute_iou_against_mask(cam, mask_path_for_iou)
 
-            # Image & Heatmap Views
-            v_col1, v_col2 = st.columns(2)
-            with v_col1:
-                st.image(orig_rgb, caption="Original Product Image", use_container_width=True)
-            with v_col2:
-                st.image(overlay, caption="Grad-CAM Attention Overlay (Defect Focus)", use_container_width=True)
+                r_col1, r_col2 = st.columns(2)
+                with r_col1:
+                    if pred_class == 1 or defect_prob >= st.session_state.operating_threshold:
+                        st.markdown(f'<div class="flag-defect">🚨 DEFECT FLAGGED (Confidence: {defect_prob*100:.1f}%)</div>', unsafe_allow_html=True)
+                    else:
+                        st.markdown(f'<div class="flag-pass">✅ PASS / NORMAL (Confidence: {(1.0-defect_prob)*100:.1f}%)</div>', unsafe_allow_html=True)
+
+                with r_col2:
+                    st.write(f"**Ground Truth:** `{ground_truth_label}`")
+                    if iou_res.get("has_gt") and iou_res.get("iou") is not None:
+                        st.markdown(f"**Grad-CAM Localization IoU:** <span class='badge-pill'>{iou_res['iou']*100:.1f}%</span> (Dice: {iou_res['dice']*100:.1f}%)", unsafe_allow_html=True)
+
+                v_col1, v_col2 = st.columns(2)
+                with v_col1:
+                    st.image(orig_rgb, caption="Original Product Image", use_container_width=True)
+                with v_col2:
+                    st.image(overlay, caption="Grad-CAM Attention Overlay", use_container_width=True)
+
+                st.markdown("---")
+                st.subheader("🧑‍🏭 Human-in-the-Loop QA Station")
+                qa_col1, qa_col2, qa_col3 = st.columns(3)
+                with qa_col1:
+                    if st.button("👍 Approve AI Decision", use_container_width=True):
+                        st.session_state.inspection_log.append({
+                            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                            "image": Path(selected_img_path).name,
+                            "model": selected_model_name,
+                            "defect_prob": f"{defect_prob*100:.1f}%",
+                            "ai_decision": "Defect" if defect_prob >= st.session_state.operating_threshold else "Good",
+                            "human_action": "Approved",
+                            "ground_truth": ground_truth_label,
+                            "iou": f"{iou_res['iou']*100:.1f}%" if iou_res.get("has_gt") else "N/A"
+                        })
+                        st.success("Decision approved and recorded.")
+                with qa_col2:
+                    if st.button("🔄 Override Decision", use_container_width=True):
+                        st.session_state.inspection_log.append({
+                            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                            "image": Path(selected_img_path).name,
+                            "model": selected_model_name,
+                            "defect_prob": f"{defect_prob*100:.1f}%",
+                            "ai_decision": "Defect" if defect_prob >= st.session_state.operating_threshold else "Good",
+                            "human_action": "Overridden",
+                            "ground_truth": ground_truth_label,
+                            "iou": f"{iou_res['iou']*100:.1f}%" if iou_res.get("has_gt") else "N/A"
+                        })
+                        st.warning("Decision overridden and recorded.")
+                with qa_col3:
+                    if st.button("⚠️ Flag for Physical QA", use_container_width=True):
+                        st.session_state.inspection_log.append({
+                            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                            "image": Path(selected_img_path).name,
+                            "model": selected_model_name,
+                            "defect_prob": f"{defect_prob*100:.1f}%",
+                            "ai_decision": "Defect" if defect_prob >= st.session_state.operating_threshold else "Good",
+                            "human_action": "Flagged For Physical QA",
+                            "ground_truth": ground_truth_label,
+                            "iou": f"{iou_res['iou']*100:.1f}%" if iou_res.get("has_gt") else "N/A"
+                        })
+                        st.info("Flagged for physical QA review.")
+
+    elif inspect_mode == "📑 Batch Test Inspection Grid":
+        st.subheader("Batch Testing on Quarantined Held-Out Test Set")
+        st.caption("Inspect how the model performs across a batch of test images simultaneously.")
+
+        batch_items = []
+        for it in test_items:
+            img_p, lbl, dt = it
+            stem = Path(img_p).stem
+            mask_p = None
+            if lbl == 1:
+                p = dm.gt_dir / dt / f"{stem}_mask.png"
+                if p.exists():
+                    mask_p = str(p)
+            batch_items.append({
+                "img_path": img_p,
+                "label": lbl,
+                "defect_type": dt,
+                "stem": stem,
+                "mask_path": mask_p
+            })
+
+        batch_limit = st.slider("Number of images to inspect in batch:", 4, len(batch_items), 12, step=4)
+        run_batch_btn = st.button("🚀 Run Batch Inspection", type="primary")
+
+        if run_batch_btn:
+            with st.spinner("Running batch inference & generating Grad-CAM heatmaps..."):
+                batch_results = batch_inspect_images(active_model, batch_items[:batch_limit], threshold=st.session_state.operating_threshold)
+
+            # Summary metrics
+            total = len(batch_results)
+            flagged = sum(1 for r in batch_results if r["is_flagged"])
+            ious = [r["iou"] for r in batch_results if r.get("iou") is not None]
+            mean_iou = float(np.mean(ious)) if ious else 0.0
+
+            m1, m2, m3, m4 = st.columns(4)
+            m1.metric("Total Tested", total)
+            m2.metric("Flagged as Defective", flagged)
+            m3.metric("Cleared as Normal", total - flagged)
+            m4.metric("Mean Localization IoU", f"{mean_iou*100:.1f}%")
 
             st.markdown("---")
-            st.subheader("🧑‍🏭 Human-in-the-Loop QA Station")
-            st.caption("Inspect borderline confidence and record human review audits.")
-
-            qa_col1, qa_col2, qa_col3 = st.columns(3)
-            with qa_col1:
-                if st.button("👍 Approve AI Decision", use_container_width=True):
-                    st.session_state.inspection_log.append({
-                        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                        "image": Path(selected_img_path).name,
-                        "model": selected_model_name,
-                        "defect_prob": f"{defect_prob*100:.1f}%",
-                        "ai_decision": "Defect" if defect_prob >= 0.5 else "Good",
-                        "human_action": "Approved",
-                        "ground_truth": ground_truth_label
-                    })
-                    st.success("Decision approved and logged.")
-            with qa_col2:
-                if st.button("🔄 Override Decision", use_container_width=True):
-                    st.session_state.inspection_log.append({
-                        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                        "image": Path(selected_img_path).name,
-                        "model": selected_model_name,
-                        "defect_prob": f"{defect_prob*100:.1f}%",
-                        "ai_decision": "Defect" if defect_prob >= 0.5 else "Good",
-                        "human_action": "Overridden",
-                        "ground_truth": ground_truth_label
-                    })
-                    st.warning("Decision overridden and logged.")
-            with qa_col3:
-                if st.button("⚠️ Needs Closer Inspection", use_container_width=True):
-                    st.session_state.inspection_log.append({
-                        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                        "image": Path(selected_img_path).name,
-                        "model": selected_model_name,
-                        "defect_prob": f"{defect_prob*100:.1f}%",
-                        "ai_decision": "Defect" if defect_prob >= 0.5 else "Good",
-                        "human_action": "Flagged For Physical QA",
-                        "ground_truth": ground_truth_label
-                    })
-                    st.info("Flagged for physical QA review.")
+            # Render grid
+            cols_per_row = 3
+            for r_i in range(0, len(batch_results), cols_per_row):
+                row_items = batch_results[r_i:r_i + cols_per_row]
+                row_cols = st.columns(cols_per_row)
+                for c_i, r in enumerate(row_items):
+                    with row_cols[c_i]:
+                        status_str = "🚨 DEFECT" if r["is_flagged"] else "✅ PASS"
+                        iou_disp = f"{r['iou']*100:.1f}%" if r.get("iou") is not None else "N/A"
+                        st.image(r["overlay_rgb"], caption=f"{r['stem']} | {status_str} ({r['defect_prob']*100:.1f}%)", use_container_width=True)
+                        st.caption(f"Ground Truth: `{r['defect_type']}` | IoU: `{iou_disp}`")
 
 
 # ==============================================================================
-# TAB 5: DASHBOARD VIEW
+# TAB 5: DASHBOARD & OPERATING THRESHOLD TUNER
 # ==============================================================================
 with tabs[4]:
-    st.markdown('<div class="main-header">Data Efficiency & Quality Dashboard</div>', unsafe_allow_html=True)
-    st.markdown('<div class="sub-header">Objective empirical evaluation of data efficiency across experimental arms and human QA audit logs.</div>', unsafe_allow_html=True)
+    st.markdown('<div class="main-header">Quality Dashboard & Decision Threshold Tuner</div>', unsafe_allow_html=True)
+    st.markdown('<div class="sub-header">Objective empirical evaluation of data efficiency across experimental arms and interactive inspection threshold tuning.</div>', unsafe_allow_html=True)
 
-    # If no benchmark runs yet, provide quick run button or seed with default runs
-    if not st.session_state.benchmark_results:
-        st.info("No multi-split benchmark results in session yet. Click below to run a standard baseline comparison across 10%, 25%, 50%, and 100% data scarcity levels.")
-        quick_run_btn = st.button("⚡ Run Full Data-Efficiency Comparison (Arms A vs B)")
-        if quick_run_btn:
-            with st.spinner("Evaluating Arms A & B across all scarcity levels (10%, 25%, 50%, 100%)..."):
-                for frac in [0.10, 0.25, 0.50, 1.0]:
-                    res_a = runner.run_arm("Arm A (Real Only)", fraction=frac, num_splits=3, epochs_per_run=5)
-                    res_b = runner.run_arm("Arm B (Real + Procedural)", fraction=frac, num_splits=3, epochs_per_run=5)
-                    st.session_state.benchmark_results.extend([res_a, res_b])
-                    st.session_state.trained_models[f"Arm A [{int(frac*100)}%]"] = res_a["best_model"]
-                    st.session_state.trained_models[f"Arm B [{int(frac*100)}%]"] = res_b["best_model"]
-            st.rerun()
+    # Threshold Tuner Section
+    st.subheader("🎚️ Interactive Inspection Sensitivity (Decision Threshold)")
+    st.caption("Adjust the operating threshold to explore the trade-off between False Alarms and Missed Defects on the held-out test set.")
 
+    t_thresh = st.slider(
+        "Classification Threshold (P(Defect) >= Threshold flags product):",
+        min_value=0.05, max_value=0.95, value=float(st.session_state.operating_threshold), step=0.05
+    )
+    st.session_state.operating_threshold = t_thresh
+
+    # Compute threshold metrics
+    if avail_models:
+        sel_m = st.session_state.trained_models.get(list(st.session_state.trained_models.keys())[0], None)
+        if sel_m is not None:
+            t_eval = evaluate_at_threshold(sel_m, test_items, threshold=t_thresh)
+
+            tm1, tm2, tm3, tm4 = st.columns(4)
+            tm1.metric("Precision", f"{t_eval['precision']*100:.1f}%", help="TP / (TP + FP)")
+            tm2.metric("Recall (Sensitivity)", f"{t_eval['recall']*100:.1f}%", help="TP / (TP + FN)")
+            tm3.metric("Specificity", f"{t_eval['specificity']*100:.1f}%", help="TN / (TN + FP)")
+            tm4.metric("False Alarm Rate", f"{t_eval['false_alarm_rate']*100:.1f}%", help="FP / (TN + FP)")
+
+            # Confusion Matrix Cards
+            c_cm1, c_cm2 = st.columns([1, 1])
+            with c_cm1:
+                st.markdown(f"""
+                | Confusion Matrix | Actual Normal (0) | Actual Defective (1) |
+                | :--- | :---: | :---: |
+                | **AI Predicted Normal** | **TN: {t_eval['tn']}** | FN (Missed): {t_eval['fn']} |
+                | **AI Predicted Defect** | FP (False Alarm): {t_eval['fp']} | **TP: {t_eval['tp']}** |
+                """)
+            with c_cm2:
+                # Dynamic ROC curve
+                fpr = t_eval['false_alarm_rate']
+                tpr = t_eval['recall']
+                fig_roc, ax_roc = plt.subplots(figsize=(6, 3), facecolor='#0B0F19')
+                ax_roc.set_facecolor('#161E31')
+                ax_roc.plot([0, 1], [0, 1], '--', color='gray')
+                ax_roc.plot([0, fpr, 1], [0, tpr, 1], color='#00F0FF', lw=2, label=f"AUC = {t_eval['roc_auc']:.3f}")
+                ax_roc.plot([fpr], [tpr], 'o', color='#FF3366', markersize=9, label=f"Threshold {t_thresh:.2f}")
+                ax_roc.set_xlabel('False Positive Rate', color='white')
+                ax_roc.set_ylabel('True Positive Rate', color='white')
+                ax_roc.set_title('Operating Point on ROC', color='white', fontsize=10)
+                ax_roc.tick_params(colors='white')
+                ax_roc.legend(facecolor='#0B0F19', labelcolor='white')
+                st.pyplot(fig_roc)
+                plt.close()
+
+    st.markdown("---")
+
+    # Benchmark Table
     if st.session_state.benchmark_results:
-        # Benchmark Table
         st.subheader("Quantitative Cross-Arm Evaluation (Held-out Test Set)")
         table_rows = []
         for r in st.session_state.benchmark_results:
@@ -623,7 +779,6 @@ with tabs[4]:
         st.subheader("Data-Efficiency Curves: Performance vs. % Real Defect Data")
         st.caption("Answers the empirical question: How does defect detection performance scale as real defective examples become scarce?")
 
-        # Prepare chart data
         plot_data = []
         for r in st.session_state.benchmark_results:
             plot_data.append({
@@ -635,8 +790,6 @@ with tabs[4]:
             })
 
         df_plot = pd.DataFrame(plot_data)
-
-        # Plot with Streamlit line chart / altair
         metric_to_plot = st.selectbox("Select Metric to Plot:", ["F1 Score", "Balanced Accuracy", "Recall"])
 
         pivot_df = df_plot.pivot_table(
@@ -648,20 +801,20 @@ with tabs[4]:
 
         st.line_chart(pivot_df)
 
-        st.markdown("---")
-        st.subheader("Objective Empirical Findings")
-        st.info("""
-        **Methodological Notes:**
-        - All evaluation metrics are calculated strictly on the quarantined, held-out test set (44 images: 20 good, 24 defective stratified across subtypes).
-        - No test images or unallotted training samples were seen by synthetic generators.
-        - Results represent mean ± standard deviation across independent random splits.
-        - Examine whether procedural blending maintains recall at low fractions (10-25%) compared to real-only training.
-        """)
-
-    # Human Review Log
+    # Human Review Log & CSV Export
     st.markdown("---")
     st.subheader("Human QA Review Audit Log")
     if st.session_state.inspection_log:
-        st.dataframe(pd.DataFrame(st.session_state.inspection_log), hide_index=True, use_container_width=True)
+        df_log = pd.DataFrame(st.session_state.inspection_log)
+        st.dataframe(df_log, hide_index=True, use_container_width=True)
+
+        csv_buffer = io.StringIO()
+        df_log.to_csv(csv_buffer, index=False)
+        st.download_button(
+            label="📥 Export QA Audit Log (CSV)",
+            data=csv_buffer.getvalue(),
+            file_name=f"synthqc_qa_audit_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+            mime="text/csv"
+        )
     else:
         st.caption("No manual inspections recorded in this session yet. Use Tab 4 (Inspection View) to review and log product decisions.")

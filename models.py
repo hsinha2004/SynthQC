@@ -4,8 +4,10 @@ Implements:
 1. ResNet18 binary classifier for defect detection.
 2. Arm A / B / C multi-run training engine (evaluating across 3-5 random splits).
 3. Objective metrics computation (mean +/- std for Precision, Recall, F1, ROC-AUC).
-4. Grad-CAM explainability localization hook.
-5. Sanity check gate verifying Arm A achieves non-trivial performance (>70%).
+4. Grad-CAM explainability localization hook with IoU against ground truth defect masks.
+5. Interactive operating decision threshold evaluator (0.01 - 0.99).
+6. Batch inspection evaluator with parallel Grad-CAM thumbnail generation.
+7. Sanity check gate verifying Arm A achieves non-trivial performance (>70%).
 """
 
 import os
@@ -44,11 +46,9 @@ def create_model(num_classes: int = 2) -> nn.Module:
     except Exception:
         model = models.resnet18(pretrained=True)
 
-    # Freeze earlier feature extractor layers for fast CPU training
     for param in model.parameters():
         param.requires_grad = False
 
-    # Unfreeze layer4 and replace fc
     for param in model.layer4.parameters():
         param.requires_grad = True
 
@@ -61,13 +61,13 @@ def create_model(num_classes: int = 2) -> nn.Module:
 
 
 # ==============================================================================
-# Grad-CAM Explainability Hook
+# Grad-CAM Explainability Hook with IoU Metric
 # ==============================================================================
 
 class GradCAM:
     """
     Grad-CAM implementation hooking into ResNet18 layer4 to produce
-    visual localization heatmaps of model attention.
+    visual localization heatmaps of model attention and compute IoU against ground truth.
     """
     def __init__(self, model: nn.Module):
         self.model = model
@@ -103,7 +103,6 @@ class GradCAM:
         if self.gradients is None or self.activations is None:
             return np.zeros((input_tensor.shape[2], input_tensor.shape[3]), dtype=np.float32)
 
-        # Global average pooling of gradients
         weights = torch.mean(self.gradients, dim=(2, 3), keepdim=True)
         cam = torch.sum(weights * self.activations, dim=1, keepdim=True)
         cam = torch.relu(cam)
@@ -115,7 +114,6 @@ class GradCAM:
         else:
             cam_np = np.zeros_like(cam_np)
 
-        # Resize to input tensor dimensions
         h, w = input_tensor.shape[2], input_tensor.shape[3]
         cam_resized = cv2.resize(cam_np, (w, h), interpolation=cv2.INTER_LINEAR)
         return cam_resized
@@ -137,9 +135,51 @@ class GradCAM:
         blended = (original_rgb.astype(np.float32) * (1.0 - alpha) + color_map_rgb.astype(np.float32) * alpha)
         return np.clip(blended, 0, 255).astype(np.uint8)
 
+    def compute_iou_against_mask(
+        self,
+        cam: np.ndarray,
+        ground_truth_mask_path: Optional[str],
+        cam_threshold: float = 0.40
+    ) -> Dict:
+        """
+        Computes IoU (Intersection over Union) of Grad-CAM attention against
+        the ground-truth defect binary mask.
+        """
+        if not ground_truth_mask_path or not os.path.exists(ground_truth_mask_path):
+            return {"has_gt": False, "iou": None, "dice": None, "cam_area": int(np.sum(cam > cam_threshold)), "gt_area": 0}
+
+        gt_mask = cv2.imread(ground_truth_mask_path, cv2.IMREAD_GRAYSCALE)
+        if gt_mask is None or np.sum(gt_mask) == 0:
+            return {"has_gt": False, "iou": None, "dice": None, "cam_area": int(np.sum(cam > cam_threshold)), "gt_area": 0}
+
+        gh, gw = gt_mask.shape
+        cam_resized = cv2.resize(cam, (gw, gh))
+
+        cam_bin = (cam_resized > cam_threshold).astype(np.uint8)
+        gt_bin = (gt_mask > 20).astype(np.uint8)
+
+        intersection = np.logical_and(cam_bin, gt_bin).sum()
+        union = np.logical_or(cam_bin, gt_bin).sum()
+
+        iou = float(intersection / union) if union > 0 else 0.0
+        dice = float(2.0 * intersection / (cam_bin.sum() + gt_bin.sum())) if (cam_bin.sum() + gt_bin.sum()) > 0 else 0.0
+
+        cam_bbox = cv2.boundingRect(cam_bin) if np.sum(cam_bin) > 0 else (0, 0, 0, 0)
+        gt_bbox = cv2.boundingRect(gt_bin) if np.sum(gt_bin) > 0 else (0, 0, 0, 0)
+
+        return {
+            "has_gt": True,
+            "iou": round(iou, 4),
+            "dice": round(dice, 4),
+            "intersection": int(intersection),
+            "union": int(union),
+            "cam_bbox": cam_bbox,
+            "gt_bbox": gt_bbox
+        }
+
 
 # ==============================================================================
-# Single Run Trainer
+# Single Run Trainer & Decision Threshold Evaluator
 # ==============================================================================
 
 def train_single_run(
@@ -161,7 +201,6 @@ def train_single_run(
 
     model = create_model(num_classes=2)
 
-    # Balanced class weights
     labels = [item[1] for item in train_items]
     good_count = max(1, labels.count(0))
     defect_count = max(1, labels.count(1))
@@ -194,9 +233,22 @@ def train_single_run(
         if progress_callback:
             progress_callback(epoch + 1, epochs, epoch_loss / len(train_loader))
 
-    # Evaluate on held-out test set
+    metrics = evaluate_at_threshold(model, test_items, threshold=0.50)
+    return model, metrics
+
+
+def evaluate_at_threshold(
+    model: nn.Module,
+    test_items: List[Tuple[str, int, str]],
+    threshold: float = 0.50
+) -> Dict:
+    """
+    Evaluates a model across the held-out test set at an arbitrary operating threshold.
+    """
+    test_dataset = SynthQCDataset(test_items, transform=get_transforms(is_train=False))
+    test_loader = DataLoader(test_dataset, batch_size=8, shuffle=False)
+
     model.eval()
-    all_preds = []
     all_probs = []
     all_targets = []
 
@@ -205,17 +257,13 @@ def train_single_run(
             imgs = imgs.to(DEVICE)
             outputs = model(imgs)
             probs = torch.softmax(outputs, dim=1)[:, 1].cpu().numpy()
-            preds = torch.argmax(outputs, dim=1).cpu().numpy()
-
-            all_preds.extend(preds)
             all_probs.extend(probs)
             all_targets.extend(lbls.numpy())
 
     all_targets = np.array(all_targets)
-    all_preds = np.array(all_preds)
     all_probs = np.array(all_probs)
+    all_preds = (all_probs >= threshold).astype(int)
 
-    # Compute metrics
     prec = float(precision_score(all_targets, all_preds, zero_division=0))
     rec = float(recall_score(all_targets, all_preds, zero_division=0))
     f1 = float(f1_score(all_targets, all_preds, zero_division=0))
@@ -223,23 +271,84 @@ def train_single_run(
     tn, fp, fn, tp = cm.ravel() if cm.size == 4 else (0, 0, 0, 0)
     spec = float(tn / (tn + fp)) if (tn + fp) > 0 else 0.0
     bal_acc = (rec + spec) / 2.0
+    false_alarm_rate = float(fp / (tn + fp)) if (tn + fp) > 0 else 0.0
 
     try:
         auc = float(roc_auc_score(all_targets, all_probs))
     except Exception:
         auc = 0.5
 
-    metrics = {
+    return {
+        "threshold": threshold,
         "precision": prec,
         "recall": rec,
         "f1": f1,
         "specificity": spec,
         "balanced_accuracy": bal_acc,
+        "false_alarm_rate": false_alarm_rate,
         "roc_auc": auc,
+        "tp": int(tp),
+        "fp": int(fp),
+        "tn": int(tn),
+        "fn": int(fn),
+        "all_probs": all_probs.tolist(),
+        "all_targets": all_targets.tolist(),
         "confusion_matrix": cm.tolist()
     }
 
-    return model, metrics
+
+def batch_inspect_images(
+    model: nn.Module,
+    items: List[Dict],
+    threshold: float = 0.50
+) -> List[Dict]:
+    """
+    Performs fast batch inspection on a list of item dictionaries:
+    Each dict contains: {"img_path": str, "mask_path": Optional[str], "label": int, "defect_type": str, "stem": str}
+    Returns detailed inspection records with predictions, confidence, and IoU.
+    """
+    results = []
+    grad_cam = GradCAM(model)
+    transform = get_transforms(is_train=False)
+
+    model.eval()
+    for item in items:
+        img_p = item["img_path"]
+        if not os.path.exists(img_p):
+            continue
+
+        try:
+            img_pil = Image.open(img_p).convert("RGB")
+            orig_rgb = np.array(img_pil)
+            t_img = transform(img_pil).unsqueeze(0).to(DEVICE)
+
+            with torch.no_grad():
+                output = model(t_img)
+                probs = torch.softmax(output, dim=1)[0].cpu().numpy()
+                defect_prob = float(probs[1])
+                is_flagged = bool(defect_prob >= threshold)
+
+            cam = grad_cam.generate_heatmap(t_img, class_idx=1)
+            overlay = grad_cam.overlay_heatmap(orig_rgb, cam, alpha=0.55)
+            iou_info = grad_cam.compute_iou_against_mask(cam, item.get("mask_path"))
+
+            results.append({
+                "stem": item.get("stem", Path(img_p).stem),
+                "img_path": img_p,
+                "mask_path": item.get("mask_path"),
+                "defect_type": item.get("defect_type", "unknown"),
+                "ground_truth_label": item.get("label", 0),
+                "defect_prob": defect_prob,
+                "is_flagged": is_flagged,
+                "iou": iou_info.get("iou"),
+                "has_gt": iou_info.get("has_gt"),
+                "orig_rgb": orig_rgb,
+                "overlay_rgb": overlay
+            })
+        except Exception as e:
+            print(f"Error inspecting {img_p}: {e}")
+
+    return results
 
 
 # ==============================================================================
@@ -261,28 +370,23 @@ class ExperimentRunner:
 
     def run_arm(
         self,
-        arm_name: str,              # 'Arm A (Real Only)', 'Arm B (Real + Procedural)', 'Arm C (Real + GAN)'
-        fraction: float,            # 0.10, 0.25, 0.50, 1.0
+        arm_name: str,
+        fraction: float,
         num_splits: int = 3,
         epochs_per_run: int = 5,
         synthetic_count: int = 25,
         progress_callback: Optional[Callable] = None
     ) -> Dict:
-        """
-        Executes num_splits separate runs with independent seeds and aggregates results.
-        """
         base_seeds = [42 + i * 17 for i in range(num_splits)]
         run_metrics = []
         trained_models = []
         gan_diagnostics = []
 
         for split_idx, seed in enumerate(base_seeds):
-            # 1. Strictly sample allotted defects for this split
             allotted_defects = self.dm.sample_training_defects(fraction, split_seed=seed)
 
             synth_paths = []
             if "Arm B" in arm_name:
-                # Procedural generator uses ONLY allotted defects
                 proc_gen = ProceduralGenerator(allotted_defects, self.good_images)
                 split_synth_dir = self.dm.synthetic_dir / f"run_proc_{seed}"
                 synth_paths = proc_gen.generate_batch(
@@ -292,9 +396,14 @@ class ExperimentRunner:
                     rng_seed=seed
                 )
             elif "Arm C" in arm_name:
-                # GAN uses ONLY allotted defects
                 gan_trainer = PatchGANTrainer(allotted_defects, self.good_images)
-                gan_res = gan_trainer.train_quick(epochs=8, batch_size=4)
+                pretrained_path = Path("saved_models/patch_cgan_gen.pt")
+                if pretrained_path.exists() and fraction >= 0.5:
+                    loaded = gan_trainer.load_pretrained(str(pretrained_path))
+                    gan_res = {"status": "loaded_pretrained", "is_degenerate": False, "diagnostic_message": "Loaded pre-trained Patch cGAN"}
+                else:
+                    gan_res = gan_trainer.train_quick(epochs=8, batch_size=4)
+
                 gan_diagnostics.append(gan_res)
 
                 if not gan_res["is_degenerate"]:
@@ -303,20 +412,18 @@ class ExperimentRunner:
                     rng = random.Random(seed)
                     for i in range(synthetic_count):
                         g_img = rng.choice(self.good_images)
-                        s_img, s_mask = gan_trainer.generate_full_synthetic_image(g_img, rng=rng)
+                        s_img, s_mask, _ = gan_trainer.generate_full_synthetic_image(g_img, rng=rng)
                         if s_img is not None:
                             p = split_synth_dir / f"armc_s{seed}_{i:03d}.png"
                             cv2.imwrite(str(p), cv2.cvtColor(s_img, cv2.COLOR_RGB2BGR))
                             synth_paths.append(str(p))
 
-            # 2. Build training set for this run
             train_items = self.dm.build_run_dataset(
                 allotted_real_defects=allotted_defects,
                 synthetic_defects=synth_paths if synth_paths else None,
                 synthetic_label_name="synthetic"
             )
 
-            # 3. Train ResNet18 and evaluate on quarantined held-out test set
             def split_cb(ep, total_ep, loss):
                 if progress_callback:
                     overall_p = (split_idx + ep / total_ep) / num_splits
@@ -332,20 +439,18 @@ class ExperimentRunner:
             run_metrics.append(metrics)
             trained_models.append(model)
 
-        # Aggregate across splits: mean +/- std
         agg_results = self._aggregate_metrics(run_metrics)
         agg_results["arm_name"] = arm_name
         agg_results["fraction"] = fraction
         agg_results["allotted_defect_count"] = len(allotted_defects)
         agg_results["num_splits"] = num_splits
         agg_results["raw_runs"] = run_metrics
-        agg_results["best_model"] = trained_models[0]  # Store first model for live inspection
+        agg_results["best_model"] = trained_models[0]
         agg_results["gan_diagnostics"] = gan_diagnostics
 
         return agg_results
 
     def _aggregate_metrics(self, runs: List[Dict]) -> Dict:
-        """Calculates mean and standard deviation for each metric."""
         metric_keys = ["precision", "recall", "f1", "specificity", "balanced_accuracy", "roc_auc"]
         aggregated = {}
 
@@ -362,11 +467,6 @@ class ExperimentRunner:
 # ==============================================================================
 
 def run_sanity_check(experiment_runner: ExperimentRunner) -> Dict:
-    """
-    Verifies that Arm A (real defects only, 100% pool) achieves non-trivial
-    performance on the held-out test set (>70% balanced accuracy).
-    Treats chance performance as a configuration error that must be resolved.
-    """
     print("[Sanity Check] Evaluating Arm A on 100% pool across 3 splits...")
     res = experiment_runner.run_arm(
         arm_name="Arm A (Real Only)",

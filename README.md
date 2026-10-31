@@ -4,8 +4,9 @@
 [![Streamlit](https://img.shields.io/badge/Streamlit-App-FF4B4B.svg?logo=streamlit)](https://streamlit.io/)
 [![Dataset](https://img.shields.io/badge/Dataset-MVTec%20AD%20(Bottle)-blue.svg)](https://www.mvtec.com/company/research/datasets/mvtec-ad)
 [![License](https://img.shields.io/badge/License-CC%20BY--NC--SA%204.0-lightgrey.svg)](https://creativecommons.org/licenses/by-nc-sa/4.0/)
+[![GitHub](https://img.shields.io/badge/GitHub-Repo-181717.svg?logo=github)](https://github.com/hsinha2004/SynthQC)
 
-**SynthQC** is an AI-assisted visual quality inspection prototype designed to investigate whether synthetic defect generation can alleviate the industrial bottleneck of defect data scarcity. In manufacturing, normal ("good") product images are abundant, but defective samples are scarce, expensive, and dangerous to create in production environments.
+**SynthQC** is an AI-assisted visual quality inspection platform designed to investigate whether synthetic defect generation can alleviate the industrial bottleneck of defect data scarcity. In manufacturing, normal ("good") product images are abundant, but defective samples are scarce, expensive, and dangerous to create in production environments.
 
 SynthQC tests whether procedurally generated (Poisson blending / cut-paste) and conditional generative adversarial network (cGAN) defect augmentations can maintain high inspection accuracy when real defect data is constrained to 10%, 25%, 50%, or 100% of available samples.
 
@@ -21,9 +22,10 @@ SynthQC tests whether procedurally generated (Poisson blending / cut-paste) and 
 
 ---
 
-### 2. Synthetic Defect Lab (Tab 2)
-*Procedural Poisson blending (`cv2.seamlessClone`) and 64×64 patch-based conditional GAN generating realistic synthetic defects strictly from allotted training pool samples (zero test leakage).*
+### 2. Synthetic Defect Studio (Tab 2)
+*Interactive Defect Placement Studio ($X, Y$ coordinate sliders, rotation, scaling, edge feathering), Procedural Poisson blending (`cv2.seamlessClone`), 64×64 patch-based conditional GAN, and a 3-way visual showdown.*
 
+![Interactive Defect Placement Studio](assets/screenshots/07_interactive_defect_studio.png)
 ![Synthetic Defect Lab](assets/screenshots/03_synthetic_defect_lab.png)
 
 ---
@@ -35,17 +37,19 @@ SynthQC tests whether procedurally generated (Poisson blending / cut-paste) and 
 
 ---
 
-### 4. Live Inspection & Grad-CAM Localization (Tab 4)
-*Real-time defect classification, confidence scoring, Grad-CAM attention localization heatmap overlay, and a human-in-the-loop QA review station.*
+### 4. Live Inspection, Batch Grid & Grad-CAM Localization (Tab 4)
+*Real-time defect classification, confidence scoring, Grad-CAM attention localization heatmap overlay with **Intersection-over-Union (IoU)** metric against ground-truth masks, parallel Batch Testing Grid, and a Human-in-the-Loop QA Station with CSV export.*
 
 ![Live Inspection with Grad-CAM](assets/screenshots/05_live_inspection_and_gradcam.png)
+![Batch Inspection Grid with Grad-CAM & IoU](assets/screenshots/08_batch_inspection_and_iou.png)
 
 ---
 
-### 5. Data-Efficiency Benchmark Dashboard (Tab 5)
-*Empirical evaluation of detection performance vs. % real defect data, answering whether synthetic data mitigates defect scarcity without pre-written conclusions.*
+### 5. Quality Dashboard & Interactive Decision Threshold Tuner (Tab 5)
+*Empirical evaluation of detection performance vs. % real defect data, paired with a dynamic Operating Threshold Tuner and ROC curve mapping to navigate the Precision vs. Recall / False Alarm trade-off.*
 
 ![Data Efficiency Dashboard](assets/screenshots/06_quality_dashboard.png)
+![Dynamic Decision Threshold & ROC Curve](assets/screenshots/09_threshold_tuner_roc.png)
 
 ---
 
@@ -83,15 +87,16 @@ SynthQC tests whether procedurally generated (Poisson blending / cut-paste) and 
 ### Tier A: Procedural Cut-Paste & Poisson Blending (Baseline)
 - **Mechanism**: Extracts connected component defect patches from allotted training masks, applies stochastic transformations (rotation ±25°, scaling 0.7×–1.3×, horizontal flips), and places them within plausible product boundaries.
 - **Blending**: Blends onto good base products using `cv2.seamlessClone` (Poisson blending via `NORMAL_CLONE` or `MIXED_CLONE`), with an automatic fallback to Gaussian-feathered alpha blending.
+- **Interactive Studio**: Allows exact $(X, Y)$ coordinate placement, angle rotation, scale tuning, and direct injection into the synthetic training pool.
 - **Reliability**: Extremely stable, fast (<10 ms per image on CPU), and produces crisp, edge-consistent defective images and pixel-accurate ground-truth masks.
 
 ### Tier B: 64×64 Patch Conditional GAN (Experimental Stretch)
 - **Mechanism**: Operates on 64×64 localized patches around the defect rather than whole images to maximize sample efficiency on CPU.
   - **Generator**: 4-layer U-Net with skip connections receiving `(good_patch_3c + mask_1c = 4 channels)`.
   - **Discriminator**: 4-layer PatchGAN evaluating condition + target image.
+  - **Pre-trained Checkpoint**: Pre-trained weights available in `saved_models/patch_cgan_gen.pt`.
 - **Visual Degeneracy & Honest Reporting**:
-  - Because training GANs on 4–10 tiny defect patches on CPU can suffer from mode collapse or checkerboard artifacts, the module computes an automated spatial variance and gradient check.
-  - If patches collapse or exhibit degenerate noise, **the failure is reported honestly in the UI and README** and not silently passed off as valid data.
+  - The module computes an automated spatial variance and gradient check. If patches collapse or exhibit degenerate noise, **the failure is reported honestly in the UI and README** and not silently passed off as valid data.
 
 ---
 
@@ -111,8 +116,25 @@ Empirical evaluation on the held-out test set (mean ± std across splits):
 | **Arm B (Real + Procedural)** | 100% | 39 | 95.2 ± 4.2% | 100.0 ± 0.0% | 96.5 ± 3.1% | **96.2 ± 3.8%** | 1.000 ± 0.000 |
 
 ### Key Observations:
-- **Low-Data Regime (10%–25% real defects)**: Procedural synthetic augmentation provides a noticeable boost (+10.7% F1 at 10% data) and significantly lowers the standard deviation across seeds, stabilizing training.
+- **Low-Data Regime (10%–25% real defects)**: Procedural synthetic augmentation provides a noticeable boost (+10.7% F1 at 10% data) and significantly lowers standard deviation across random seeds, stabilizing training.
 - **High-Data Regime (100% real defects)**: Once real defect samples reach 39, real-only training achieves near-ceiling performance (~96.9% F1), and synthetic augmentation offers marginal or redundant utility.
+
+---
+
+## ⚡ Quickstart
+
+```bash
+# 1. Clone repository
+git clone https://github.com/hsinha2004/SynthQC.git
+cd SynthQC
+
+# 2. Install dependencies
+pip install -r requirements.txt
+
+# 3. Launch application
+streamlit run app.py
+```
+Open your browser at `http://localhost:8501`.
 
 ---
 
@@ -129,9 +151,10 @@ To deploy SynthQC on real industrial manufacturing lines:
 4. **Resolution & Latency**:
    - Crop high-resolution industrial cameras (e.g. 5 MP) to regions of interest (ROI) before feeding into the 224×224 classifier backbone to meet conveyor belt cycle times (<50 ms).
 5. **Dual-Threshold Human Routing**:
-   - Confidence > 85%: Auto-reject defect.
-   - Confidence < 15%: Auto-pass product.
-   - 15% – 85%: Route to human QA inspection station.
+   - Use the Inspection View's confidence meter to set an automated dual-threshold:
+     - Confidence > 85%: Auto-reject defect.
+     - Confidence < 15%: Auto-pass product.
+     - 15% – 85%: Route to human QA inspection station.
 
 ---
 
