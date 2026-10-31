@@ -10,6 +10,12 @@
 
 SynthQC tests whether procedurally generated (Poisson blending / cut-paste) and conditional generative adversarial network (cGAN) defect augmentations can maintain high inspection accuracy when real defect data is constrained to 10%, 25%, 50%, or 100% of available samples.
 
+> ### 💡 The 30-Second Plain-English Summary
+> - **The Factory Problem:** Modern assembly lines produce 99.9% flawless products. But to teach an AI inspection camera to catch defects, you need hundreds of photos of broken items. Waiting to collect rare flaws can take months, stop production, and cost tens of thousands of dollars.
+> - **The SynthQC Solution:** Instead of waiting for items to break, SynthQC takes photos of a tiny handful of real flaws (cracks, rim chips, dirt smudges) and seamlessly blends them onto clean bottles using mathematical *Poisson cloning*.
+> - **The Big Result:** When you only have **3 real broken bottles** (10% data), traditional AI achieves only **72.4% F1 accuracy**. Training with SynthQC's synthetic flaws boosts accuracy to **83.1% F1 (+10.7% increase)**!
+> - **Zero AI Cheating (Locked Vault):** 44 bottles are permanently sealed in a test vault that the AI and generators never touch, guaranteeing 100% honest evaluation.
+
 ---
 
 ## 📸 Visual Tour & System Architecture
@@ -132,9 +138,16 @@ cd SynthQC
 pip install -r requirements.txt
 
 # 3. Launch application
-streamlit run app.py
+python -m streamlit run app.py
 ```
 Open your browser at `http://localhost:8501`.
+
+### 🧭 Quick 5-Tab Guide (Anyone Can Follow!)
+- **Tab 1: Product Catalog & Test Vault** — Browse flawless bottles, see the 3 real defect categories (*broken glass, rim chips, contamination*), and inspect the 44-image locked test vault.
+- **Tab 2: Flaw Studio** — Click one-click presets (`Rim Chip`, `Body Fracture`, `Base Contamination`) to watch the app digitally graft realistic flaws onto clean bottles in real time.
+- **Tab 3: AI Training Lab** — Compare how models learn with real defect data alone (Arm A) vs. real + synthetic data (Arm B).
+- **Tab 4: Live Part Inspection** — Click `Quick Test: Flawless Bottle` or `Quick Test: Cracked Glass` to see instant PASS/REJECT badges, Grad-CAM attention heatmaps, and target match scores (IoU).
+- **Tab 5: Executive Insights & Strictness Tuning** — Move the **Factory Strictness Slider** to balance catching all defects vs. minimizing false alarms on clean bottles.
 
 ---
 
