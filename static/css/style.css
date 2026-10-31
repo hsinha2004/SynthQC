@@ -1,0 +1,186 @@
+/* SynthQC Vision Station - Enterprise Styling */
+
+:root {
+  --bg-primary: #0A0E17;
+  --bg-secondary: #111726;
+  --bg-card: #161F33;
+  --bg-card-hover: #1C2740;
+  --border-subtle: #1E2B45;
+  --border-focus: #3B82F6;
+  --text-main: #F1F5F9;
+  --text-muted: #94A3B8;
+  --text-subtle: #64748B;
+  --accent-blue: #3B82F6;
+  --accent-cyan: #06B6D4;
+  --pass-green: #10B981;
+  --pass-bg: rgba(16, 185, 129, 0.12);
+  --pass-border: rgba(16, 185, 129, 0.35);
+  --fail-red: #EF4444;
+  --fail-bg: rgba(239, 68, 68, 0.12);
+  --fail-border: rgba(239, 68, 68, 0.35);
+  --warn-amber: #F59E0B;
+  --warn-bg: rgba(245, 158, 11, 0.12);
+  --warn-border: rgba(245, 158, 11, 0.35);
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+
+body {
+  background-color: var(--bg-primary);
+  color: var(--text-main);
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow-x: hidden;
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: var(--bg-primary);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border-subtle);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-subtle);
+}
+
+/* Glassmorphism Navigation */
+.header-nav {
+  background: rgba(17, 23, 38, 0.85);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--border-subtle);
+  position: sticky;
+  top: 0;
+  z-index: 50;
+}
+
+/* Active Tab indicator */
+.nav-tab {
+  transition: all 0.2s ease;
+  position: relative;
+  cursor: pointer;
+  color: var(--text-muted);
+}
+.nav-tab:hover {
+  color: var(--text-main);
+}
+.nav-tab.active {
+  color: #60A5FA;
+  font-weight: 600;
+}
+.nav-tab.active::after {
+  content: '';
+  position: absolute;
+  bottom: -1px;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: #3B82F6;
+  border-radius: 2px 2px 0 0;
+}
+
+/* Background Job Banner */
+.bg-job-banner {
+  background: linear-gradient(90deg, rgba(30, 58, 138, 0.35) 0%, rgba(17, 24, 39, 0.7) 100%);
+  border-bottom: 1px solid rgba(59, 130, 246, 0.4);
+  animation: pulse-border 2s infinite ease-in-out;
+}
+@keyframes pulse-border {
+  0%, 100% { border-color: rgba(59, 130, 246, 0.4); }
+  50% { border-color: rgba(59, 130, 246, 0.8); }
+}
+
+/* Interactive Cards */
+.card {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+  transition: all 0.2s ease;
+}
+.card:hover {
+  border-color: rgba(59, 130, 246, 0.3);
+}
+
+/* Verdict Badges */
+.badge-pass {
+  background: var(--pass-bg);
+  border: 1px solid var(--pass-border);
+  color: #34D399;
+}
+.badge-fail {
+  background: var(--fail-bg);
+  border: 1px solid var(--fail-border);
+  color: #F87171;
+}
+.badge-warn {
+  background: var(--warn-bg);
+  border: 1px solid var(--warn-border);
+  color: #FBBF24;
+}
+
+/* View Mode Toggles */
+.toggle-btn {
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-muted);
+  transition: all 0.15s ease;
+}
+.toggle-btn.active {
+  background: #2563EB;
+  color: #FFFFFF;
+  border-color: #3B82F6;
+}
+
+/* Image Visualizer Frame */
+.image-canvas-frame {
+  background: #060911;
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 380px;
+}
+
+/* Toast Notifications */
+#toast-container {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.toast {
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-main);
+  padding: 12px 18px;
+  border-radius: 8px;
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 0.9rem;
+  transform: translateY(20px);
+  opacity: 0;
+  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.toast.show {
+  transform: translateY(0);
+  opacity: 1;
+}

@@ -10,6 +10,8 @@ saved_models/*.pth
 # Large Dataset files (auto-downloaded via Hugging Face mirror on first run)
 data/mvtec/
 data/synthetic/
+data/temp_studio/
+data/uploads/
 *.tar.xz
 *.tar.gz
 *.zip

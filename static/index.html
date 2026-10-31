@@ -1,0 +1,644 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SynthQC Vision Station — Enterprise Quality Inspection</title>
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Lucide Icons CDN -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <!-- Chart.js CDN for Analytics -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body class="bg-[#0A0E17] text-slate-100 min-h-screen flex flex-col">
+
+  <!-- ========================================================================= -->
+  <!-- Header & Navigation -->
+  <!-- ========================================================================= -->
+  <header class="header-nav px-6 py-3.5 flex items-center justify-between border-b border-[#1E2B45] sticky top-0 z-40 bg-[#0F1626]/90 backdrop-blur-md">
+    <div class="flex items-center gap-4">
+      <div class="flex items-center gap-2.5">
+        <div class="w-9 h-9 rounded-lg bg-blue-600/20 border border-blue-500/40 flex items-center justify-center text-blue-400">
+          <i data-lucide="scan" class="w-5 h-5"></i>
+        </div>
+        <div>
+          <div class="font-bold text-base tracking-tight flex items-center gap-2">
+            SynthQC <span class="text-xs font-semibold px-2 py-0.5 rounded bg-blue-500/10 text-blue-400 border border-blue-500/30">VISION STATION</span>
+          </div>
+          <div class="text-[11px] text-slate-400 -mt-0.5">Automated Optical Inspection & Data Augmentation</div>
+        </div>
+      </div>
+      <div class="h-6 w-px bg-[#1E2B45] mx-2 hidden sm:block"></div>
+      <div class="hidden sm:flex items-center gap-2 text-xs text-slate-400">
+        <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+        <span>Specimen: <strong class="text-slate-200" id="header-specimen">Glass Bottle</strong></span>
+      </div>
+    </div>
+
+    <!-- Station Tabs Navigation -->
+    <nav class="flex items-center gap-1 sm:gap-2 text-sm font-medium">
+      <button onclick="switchTab('inspect')" id="tab-btn-inspect" class="nav-tab active px-3.5 py-2 rounded-lg flex items-center gap-2">
+        <i data-lucide="camera" class="w-4 h-4"></i>
+        <span>Live Inspection</span>
+      </button>
+      <button onclick="switchTab('studio')" id="tab-btn-studio" class="nav-tab px-3.5 py-2 rounded-lg flex items-center gap-2">
+        <i data-lucide="sparkles" class="w-4 h-4"></i>
+        <span>Defect Studio</span>
+      </button>
+      <button onclick="switchTab('train')" id="tab-btn-train" class="nav-tab px-3.5 py-2 rounded-lg flex items-center gap-2">
+        <i data-lucide="cpu" class="w-4 h-4"></i>
+        <span>Model Hub</span>
+        <span id="train-tab-badge" class="hidden w-2 h-2 rounded-full bg-blue-500 animate-ping"></span>
+      </button>
+      <button onclick="switchTab('analytics')" id="tab-btn-analytics" class="nav-tab px-3.5 py-2 rounded-lg flex items-center gap-2">
+        <i data-lucide="bar-chart-3" class="w-4 h-4"></i>
+        <span>Analytics & Audit</span>
+      </button>
+    </nav>
+
+    <!-- Top Right Status -->
+    <div class="hidden lg:flex items-center gap-3">
+      <div class="bg-[#161F33] border border-[#1E2B45] rounded-lg px-3 py-1.5 flex items-center gap-2 text-xs">
+        <span class="text-slate-400">Active Model:</span>
+        <span class="font-medium text-blue-400" id="header-active-model">SynthQC Augmented</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- ========================================================================= -->
+  <!-- Background Job Notification Banner (Appears when training is active) -->
+  <!-- ========================================================================= -->
+  <div id="bg-job-banner" class="hidden bg-gradient-to-r from-blue-950/80 via-slate-900/90 to-blue-950/80 border-b border-blue-500/40 px-6 py-2.5 flex items-center justify-between z-30 transition-all">
+    <div class="flex items-center gap-3 text-xs sm:text-sm">
+      <div class="w-6 h-6 rounded-full bg-blue-500/20 border border-blue-400/40 flex items-center justify-center text-blue-400 animate-spin">
+        <i data-lucide="loader-2" class="w-3.5 h-3.5"></i>
+      </div>
+      <div>
+        <span class="font-semibold text-blue-300" id="bg-banner-title">Background Training Active</span>
+        <span class="text-slate-300 ml-2" id="bg-banner-msg">Optimizing vision weights...</span>
+      </div>
+    </div>
+    <div class="flex items-center gap-4">
+      <div class="w-48 bg-slate-800 rounded-full h-2 overflow-hidden border border-slate-700">
+        <div id="bg-banner-progress" class="bg-blue-500 h-full rounded-full transition-all duration-300" style="width: 15%"></div>
+      </div>
+      <span class="text-xs text-blue-400 font-mono" id="bg-banner-pct">15%</span>
+      <span class="text-xs text-slate-400 hidden md:inline">Runs in background — continue inspecting</span>
+    </div>
+  </div>
+
+  <!-- ========================================================================= -->
+  <!-- Main Container -->
+  <!-- ========================================================================= -->
+  <main class="flex-1 p-4 sm:p-6 max-w-7xl w-full mx-auto">
+
+    <!-- ======================================================================= -->
+    <!-- STATION 1: LIVE INSPECTION -->
+    <!-- ======================================================================= -->
+    <section id="station-inspect" class="station-view block space-y-6">
+
+      <!-- Header & 1-Click Presets -->
+      <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-[#111726] p-4 rounded-xl border border-[#1E2B45]">
+        <div>
+          <h1 class="text-lg font-bold text-slate-100 flex items-center gap-2">
+            <span>Live Inspection & Defect Localization</span>
+            <span class="text-xs font-normal text-slate-400 px-2 py-0.5 rounded bg-[#161F33] border border-[#1E2B45]">Latency &lt;25ms</span>
+          </h1>
+          <p class="text-xs text-slate-400 mt-0.5">Select a conveyor specimen preset or upload a custom capture to inspect for flaws.</p>
+        </div>
+
+        <!-- 1-Click Sample Trays -->
+        <div class="flex flex-wrap items-center gap-2">
+          <button onclick="loadSamplePreset('preset_good')" class="px-3 py-1.5 rounded-lg bg-[#161F33] hover:bg-[#1C2740] border border-[#1E2B45] text-xs flex items-center gap-2 transition">
+            <span>🍾</span>
+            <span>Flawless (Normal)</span>
+          </button>
+          <button onclick="loadSamplePreset('preset_large')" class="px-3 py-1.5 rounded-lg bg-[#161F33] hover:bg-[#1C2740] border border-[#1E2B45] text-xs flex items-center gap-2 transition">
+            <span>💥</span>
+            <span>Glass Crack</span>
+          </button>
+          <button onclick="loadSamplePreset('preset_small')" class="px-3 py-1.5 rounded-lg bg-[#161F33] hover:bg-[#1C2740] border border-[#1E2B45] text-xs flex items-center gap-2 transition">
+            <span>⚡</span>
+            <span>Rim Chip</span>
+          </button>
+          <button onclick="loadSamplePreset('preset_cont')" class="px-3 py-1.5 rounded-lg bg-[#161F33] hover:bg-[#1C2740] border border-[#1E2B45] text-xs flex items-center gap-2 transition">
+            <span>🌑</span>
+            <span>Smudge</span>
+          </button>
+          <label class="cursor-pointer px-3 py-1.5 rounded-lg bg-blue-600/20 hover:bg-blue-600/30 border border-blue-500/40 text-blue-400 text-xs flex items-center gap-1.5 transition">
+            <i data-lucide="upload" class="w-3.5 h-3.5"></i>
+            <span>Upload Image</span>
+            <input type="file" id="file-upload" accept="image/*" class="hidden" onchange="handleFileUpload(event)">
+          </label>
+        </div>
+      </div>
+
+      <!-- Main Visual & Telemetry Grid -->
+      <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+
+        <!-- Optical Viewer (Left 7 Cols) -->
+        <div class="lg:col-span-7 space-y-3">
+          <div class="image-canvas-frame p-2">
+            <!-- Loading Indicator -->
+            <div id="inspect-loading" class="hidden absolute inset-0 bg-[#060911]/80 backdrop-blur-sm z-20 flex flex-col items-center justify-center gap-3">
+              <div class="w-8 h-8 rounded-full border-2 border-blue-500 border-t-transparent animate-spin"></div>
+              <span class="text-xs text-blue-400 font-medium">Screening optical feed...</span>
+            </div>
+
+            <!-- Image View -->
+            <img id="main-view-img" src="" alt="Inspection specimen" class="max-h-[460px] w-auto object-contain rounded-lg shadow-lg">
+
+            <!-- Empty Placeholder -->
+            <div id="empty-view-placeholder" class="text-center p-8 text-slate-500">
+              <i data-lucide="camera" class="w-12 h-12 mx-auto stroke-[1.5] mb-2 opacity-40"></i>
+              <p class="text-sm font-medium">No part loaded yet</p>
+              <p class="text-xs text-slate-600 mt-1">Click any preset above or upload an image to begin.</p>
+            </div>
+          </div>
+
+          <!-- View Toggle Controls -->
+          <div class="flex items-center justify-between bg-[#111726] p-2 rounded-lg border border-[#1E2B45] text-xs">
+            <div class="flex items-center gap-1">
+              <button id="view-mode-clean" onclick="setInspectionViewMode('clean')" class="toggle-btn active px-3 py-1.5 rounded-md flex items-center gap-1.5">
+                <i data-lucide="eye" class="w-3.5 h-3.5"></i>
+                <span>Raw Optical Photo</span>
+              </button>
+              <button id="view-mode-heatmap" onclick="setInspectionViewMode('heatmap')" class="toggle-btn px-3 py-1.5 rounded-md flex items-center gap-1.5">
+                <i data-lucide="flame" class="w-3.5 h-3.5"></i>
+                <span>AI Focus Heatmap</span>
+              </button>
+            </div>
+            <span class="text-[11px] text-slate-400 pr-2" id="lens-caption">Heatmap illuminates where AI detected anomalies</span>
+          </div>
+        </div>
+
+        <!-- Telemetry & Decision Box (Right 5 Cols) -->
+        <div class="lg:col-span-5 space-y-4">
+
+          <!-- Big Verdict Card -->
+          <div class="card p-5 space-y-4">
+            <div class="flex items-center justify-between border-b border-[#1E2B45] pb-3">
+              <span class="text-xs font-semibold uppercase tracking-wider text-slate-400">Quality Verdict</span>
+              <span class="text-xs font-mono text-slate-500" id="inspect-latency">Latency: -- ms</span>
+            </div>
+
+            <!-- Big Status Pill -->
+            <div id="verdict-banner" class="p-4 rounded-xl flex items-center gap-3 badge-pass">
+              <div id="verdict-icon" class="w-8 h-8 rounded-lg flex items-center justify-center bg-emerald-500/20 text-emerald-400">
+                <i data-lucide="check-circle" class="w-5 h-5"></i>
+              </div>
+              <div>
+                <div class="text-lg font-bold tracking-tight" id="verdict-title">READY TO INSPECT</div>
+                <div class="text-xs opacity-90" id="verdict-subtitle">Select a part to run quality clearance</div>
+              </div>
+            </div>
+
+            <!-- Detailed Metrics Grid -->
+            <div class="grid grid-cols-2 gap-3 pt-2 text-xs">
+              <div class="bg-[#161F33] p-3 rounded-lg border border-[#1E2B45]">
+                <div class="text-slate-400 text-[11px]">Identified Category</div>
+                <div class="text-sm font-semibold text-slate-100 mt-0.5" id="metric-defect-type">--</div>
+              </div>
+              <div class="bg-[#161F33] p-3 rounded-lg border border-[#1E2B45]">
+                <div class="text-slate-400 text-[11px]">Defect Confidence</div>
+                <div class="text-sm font-semibold text-slate-100 mt-0.5" id="metric-confidence">-- %</div>
+              </div>
+              <div class="bg-[#161F33] p-3 rounded-lg border border-[#1E2B45] col-span-2 flex items-center justify-between">
+                <div>
+                  <div class="text-slate-400 text-[11px]">AI Target Focus Accuracy</div>
+                  <div class="text-xs font-medium text-blue-400 mt-0.5" id="metric-match-score">-- match with ground-truth defect</div>
+                </div>
+                <i data-lucide="crosshair" class="w-5 h-5 text-blue-400/60"></i>
+              </div>
+            </div>
+
+            <!-- Human-in-the-Loop Operator Actions -->
+            <div class="pt-3 border-t border-[#1E2B45] space-y-2">
+              <div class="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Operator Decision</div>
+              <div class="grid grid-cols-3 gap-2">
+                <button onclick="logOperatorDecision('Approved')" class="px-2.5 py-2 rounded-lg bg-emerald-600/20 hover:bg-emerald-600/30 border border-emerald-500/40 text-emerald-400 text-xs font-medium flex items-center justify-center gap-1.5 transition">
+                  <i data-lucide="check" class="w-3.5 h-3.5"></i>
+                  <span>Approve</span>
+                </button>
+                <button onclick="logOperatorDecision('Rejected')" class="px-2.5 py-2 rounded-lg bg-rose-600/20 hover:bg-rose-600/30 border border-rose-500/40 text-rose-400 text-xs font-medium flex items-center justify-center gap-1.5 transition">
+                  <i data-lucide="x" class="w-3.5 h-3.5"></i>
+                  <span>Reject</span>
+                </button>
+                <button onclick="logOperatorDecision('Manual Audit')" class="px-2.5 py-2 rounded-lg bg-amber-600/20 hover:bg-amber-600/30 border border-amber-500/40 text-amber-400 text-xs font-medium flex items-center justify-center gap-1.5 transition">
+                  <i data-lucide="alert-circle" class="w-3.5 h-3.5"></i>
+                  <span>Audit</span>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Quick Conveyor Batch Screening Trigger -->
+          <div class="card p-4 flex items-center justify-between">
+            <div>
+              <div class="text-xs font-semibold text-slate-200">High-Throughput Batch Screener</div>
+              <div class="text-[11px] text-slate-400">Screen 12 random conveyor samples in parallel</div>
+            </div>
+            <button onclick="runBatchInspection()" class="px-3.5 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium flex items-center gap-1.5 transition shadow-sm">
+              <i data-lucide="play" class="w-3.5 h-3.5"></i>
+              <span>Screen Batch</span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Batch Screening Results Grid (collapsible) -->
+      <div id="batch-results-container" class="hidden card p-5 space-y-4">
+        <div class="flex items-center justify-between border-b border-[#1E2B45] pb-3">
+          <div class="flex items-center gap-3">
+            <span class="text-sm font-bold text-slate-200">Conveyor Batch Screening Results</span>
+            <span class="text-xs px-2.5 py-0.5 rounded-full bg-blue-500/20 text-blue-400 font-medium" id="batch-summary-text">12 Screened</span>
+          </div>
+          <button onclick="document.getElementById('batch-results-container').classList.add('hidden')" class="text-slate-400 hover:text-slate-200 text-xs">Close</button>
+        </div>
+        <div id="batch-cards-grid" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
+          <!-- Dynamically populated batch cards -->
+        </div>
+      </div>
+
+    </section>
+
+    <!-- ======================================================================= -->
+    <!-- STATION 2: DEFECT STUDIO (DATA AUGMENTATION) -->
+    <!-- ======================================================================= -->
+    <section id="station-studio" class="station-view hidden space-y-6">
+
+      <!-- Station Header -->
+      <div class="bg-[#111726] p-5 rounded-xl border border-[#1E2B45] flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div>
+          <h1 class="text-lg font-bold text-slate-100 flex items-center gap-2">
+            <span>Defect Synthesizer & Augmentation Studio</span>
+            <span class="text-xs font-normal text-blue-400 px-2 py-0.5 rounded bg-blue-500/10 border border-blue-500/30">Data Augmentation Engine</span>
+          </h1>
+          <p class="text-xs text-slate-400 mt-1 max-w-2xl leading-relaxed">
+            Create high-realism artificial flaws on clean parts to train models when physical scrap is rare. Seamless gradient blending mathematically fuses lighting and glass reflections so the flaw looks completely authentic.
+          </p>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+
+        <!-- Controls (Left 4 Cols) -->
+        <div class="lg:col-span-4 card p-5 space-y-5">
+          <div class="font-semibold text-xs text-slate-300 uppercase tracking-wider border-b border-[#1E2B45] pb-2">Synthesis Controls</div>
+
+          <!-- 1. Choose Flaw Type -->
+          <div class="space-y-2">
+            <label class="text-xs text-slate-400 font-medium">1. Select Flaw Category</label>
+            <div class="grid grid-cols-3 gap-2">
+              <button onclick="setStudioFlaw('broken_large', this)" class="studio-flaw-btn active px-3 py-2 rounded-lg bg-blue-600/20 border border-blue-500/40 text-blue-400 text-xs font-medium text-center transition">
+                💥 Crack
+              </button>
+              <button onclick="setStudioFlaw('broken_small', this)" class="studio-flaw-btn px-3 py-2 rounded-lg bg-[#161F33] border border-[#1E2B45] text-slate-300 text-xs font-medium text-center transition">
+                ⚡ Chip
+              </button>
+              <button onclick="setStudioFlaw('contamination', this)" class="studio-flaw-btn px-3 py-2 rounded-lg bg-[#161F33] border border-[#1E2B45] text-slate-300 text-xs font-medium text-center transition">
+                🌑 Smudge
+              </button>
+            </div>
+          </div>
+
+          <!-- 2. Placement Presets -->
+          <div class="space-y-2">
+            <label class="text-xs text-slate-400 font-medium">2. Position on Bottle</label>
+            <div class="grid grid-cols-3 gap-2">
+              <button onclick="setStudioPreset('rim', this)" class="studio-pos-btn active px-3 py-2 rounded-lg bg-blue-600/20 border border-blue-500/40 text-blue-400 text-xs font-medium text-center transition">
+                Rim (Top)
+              </button>
+              <button onclick="setStudioPreset('body', this)" class="studio-pos-btn px-3 py-2 rounded-lg bg-[#161F33] border border-[#1E2B45] text-slate-300 text-xs font-medium text-center transition">
+                Body (Center)
+              </button>
+              <button onclick="setStudioPreset('base', this)" class="studio-pos-btn px-3 py-2 rounded-lg bg-[#161F33] border border-[#1E2B45] text-slate-300 text-xs font-medium text-center transition">
+                Base (Bottom)
+              </button>
+            </div>
+          </div>
+
+          <!-- 3. Size & Rotation Sliders -->
+          <div class="space-y-4 pt-2">
+            <div>
+              <div class="flex justify-between text-xs text-slate-400 mb-1">
+                <span>Flaw Scale</span>
+                <span id="slider-scale-val" class="font-mono text-slate-200">1.0x</span>
+              </div>
+              <input type="range" id="studio-scale" min="0.5" max="1.6" step="0.05" value="1.0" class="w-full h-1.5 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-blue-500" oninput="updateStudioSliderVals()">
+            </div>
+            <div>
+              <div class="flex justify-between text-xs text-slate-400 mb-1">
+                <span>Rotation Angle</span>
+                <span id="slider-rot-val" class="font-mono text-slate-200">0°</span>
+              </div>
+              <input type="range" id="studio-rot" min="-180" max="180" step="5" value="0" class="w-full h-1.5 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-blue-500" oninput="updateStudioSliderVals()">
+            </div>
+          </div>
+
+          <!-- Action Buttons -->
+          <div class="pt-3 space-y-2">
+            <button onclick="generateStudioSample()" class="w-full py-2.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-medium text-xs flex items-center justify-center gap-2 transition shadow">
+              <i data-lucide="refresh-cw" class="w-4 h-4"></i>
+              <span>Generate Flaw Preview</span>
+            </button>
+            <button onclick="commitStudioSample()" id="btn-commit-sample" class="w-full py-2.5 rounded-lg bg-emerald-600/20 hover:bg-emerald-600/30 border border-emerald-500/40 text-emerald-400 font-medium text-xs flex items-center justify-center gap-2 transition">
+              <i data-lucide="plus-circle" class="w-4 h-4"></i>
+              <span>Commit Sample to Training Pool</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- 4-Step Preview Display (Right 8 Cols) -->
+        <div class="lg:col-span-8 card p-5 space-y-4">
+          <div class="flex items-center justify-between border-b border-[#1E2B45] pb-2">
+            <span class="text-xs font-semibold text-slate-300 uppercase tracking-wider">Augmentation Pipeline Preview</span>
+            <span class="text-[11px] text-emerald-400 flex items-center gap-1">
+              <i data-lucide="shield-check" class="w-3.5 h-3.5"></i>
+              <span>Seamless Poisson Blending</span>
+            </span>
+          </div>
+
+          <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <div class="bg-[#060911] p-2 rounded-lg border border-[#1E2B45] text-center">
+              <span class="text-[11px] font-semibold text-slate-400 block mb-2">1. Pristine Bottle</span>
+              <img id="studio-preview-clean" src="" class="w-full h-44 object-contain rounded bg-[#0A0E17]" alt="Clean">
+            </div>
+            <div class="bg-[#060911] p-2 rounded-lg border border-[#1E2B45] text-center">
+              <span class="text-[11px] font-semibold text-slate-400 block mb-2">2. Authentic Patch</span>
+              <img id="studio-preview-patch" src="" class="w-full h-44 object-contain rounded bg-[#0A0E17]" alt="Patch">
+            </div>
+            <div class="bg-[#060911] p-2 rounded-lg border border-[#1E2B45] text-center border-blue-500/40 ring-1 ring-blue-500/20">
+              <span class="text-[11px] font-semibold text-blue-400 block mb-2">3. Synthesized Part</span>
+              <img id="studio-preview-result" src="" class="w-full h-44 object-contain rounded bg-[#0A0E17]" alt="Result">
+            </div>
+            <div class="bg-[#060911] p-2 rounded-lg border border-[#1E2B45] text-center">
+              <span class="text-[11px] font-semibold text-slate-400 block mb-2">4. Generated Mask</span>
+              <img id="studio-preview-mask" src="" class="w-full h-44 object-contain rounded bg-[#0A0E17]" alt="Mask">
+            </div>
+          </div>
+
+          <div class="bg-[#161F33] p-3 rounded-lg border border-[#1E2B45] text-xs text-slate-400 flex items-center gap-3">
+            <i data-lucide="info" class="w-4 h-4 text-blue-400 shrink-0"></i>
+            <span>This generator creates infinite unique defect variations without damaging real inventory. Click <strong>Commit Sample</strong> to add it directly to your neural detector's training data.</span>
+          </div>
+        </div>
+
+      </div>
+
+    </section>
+
+    <!-- ======================================================================= -->
+    <!-- STATION 3: MODEL HUB & BACKGROUND TRAINER -->
+    <!-- ======================================================================= -->
+    <section id="station-train" class="station-view hidden space-y-6">
+
+      <!-- Header -->
+      <div class="bg-[#111726] p-5 rounded-xl border border-[#1E2B45] flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div>
+          <h1 class="text-lg font-bold text-slate-100 flex items-center gap-2">
+            <span>Model Hub & Asynchronous Training</span>
+            <span class="text-xs font-normal text-emerald-400 px-2 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/30">Background Engine</span>
+          </h1>
+          <p class="text-xs text-slate-400 mt-1 max-w-2xl leading-relaxed">
+            Train vision models on raw scrap or supercharge them with SynthQC synthetic flaws. All training runs asynchronously in the background so you can continue inspecting parts without interruption.
+          </p>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+
+        <!-- Training Configuration (Left 5 Cols) -->
+        <div class="lg:col-span-5 card p-5 space-y-5">
+          <div class="font-semibold text-xs text-slate-300 uppercase tracking-wider border-b border-[#1E2B45] pb-2">Train New Vision Model</div>
+
+          <!-- Mode Selector -->
+          <div class="space-y-2">
+            <label class="text-xs text-slate-400 font-medium">1. Select Augmentation Strategy</label>
+            <div class="space-y-2">
+              <label class="flex items-start gap-3 p-3 rounded-lg bg-[#161F33] border border-blue-500/40 cursor-pointer transition hover:bg-[#1C2740]">
+                <input type="radio" name="train-mode" value="synthqc" checked class="mt-0.5 text-blue-600 focus:ring-blue-500">
+                <div>
+                  <div class="text-xs font-bold text-slate-200">SynthQC Augmented (Recommended)</div>
+                  <div class="text-[11px] text-slate-400 leading-snug">Augments rare defect images with realistic Poisson synthetic flaws. +10.7% boost at low data.</div>
+                </div>
+              </label>
+              <label class="flex items-start gap-3 p-3 rounded-lg bg-[#161F33] border border-[#1E2B45] cursor-pointer transition hover:bg-[#1C2740]">
+                <input type="radio" name="train-mode" value="standard" class="mt-0.5 text-blue-600 focus:ring-blue-500">
+                <div>
+                  <div class="text-xs font-bold text-slate-200">Standard Baseline</div>
+                  <div class="text-[11px] text-slate-400 leading-snug">Trains solely on available physical scrap photos without augmentation.</div>
+                </div>
+              </label>
+            </div>
+          </div>
+
+          <!-- Physical Scarcity Slider -->
+          <div class="space-y-2">
+            <div class="flex justify-between text-xs text-slate-400">
+              <label class="font-medium">2. Physical Defect Data Availability</label>
+              <span id="train-scarcity-label" class="font-mono text-blue-400 font-semibold">25% (10 broken parts)</span>
+            </div>
+            <input type="range" id="train-scarcity" min="10" max="100" step="15" value="25" class="w-full h-1.5 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-blue-500" oninput="updateScarcityLabel()">
+            <div class="flex justify-between text-[10px] text-slate-500 px-1">
+              <span>10% (3 parts)</span>
+              <span>25%</span>
+              <span>50%</span>
+              <span>100% (39 parts)</span>
+            </div>
+          </div>
+
+          <!-- Start Button -->
+          <button onclick="startBackgroundTraining()" id="btn-start-training" class="w-full py-3 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-medium text-xs flex items-center justify-center gap-2 transition shadow">
+            <i data-lucide="play-circle" class="w-4 h-4"></i>
+            <span>Start Background Training</span>
+          </button>
+        </div>
+
+        <!-- Live Monitor & Model Selector (Right 7 Cols) -->
+        <div class="lg:col-span-7 space-y-5">
+
+          <!-- Background Training Progress Monitor -->
+          <div class="card p-5 space-y-4">
+            <div class="flex items-center justify-between border-b border-[#1E2B45] pb-2">
+              <span class="text-xs font-semibold text-slate-300 uppercase tracking-wider">Background Engine Telemetry</span>
+              <span id="train-worker-status-badge" class="text-xs px-2.5 py-0.5 rounded-full bg-slate-700 text-slate-300 font-mono">Idle</span>
+            </div>
+
+            <!-- Progress Meter -->
+            <div class="space-y-2">
+              <div class="flex justify-between text-xs text-slate-300">
+                <span id="train-worker-msg">System idle. Ready to initiate training.</span>
+                <span id="train-worker-pct" class="font-mono text-blue-400">0%</span>
+              </div>
+              <div class="w-full bg-[#060911] h-2.5 rounded-full overflow-hidden border border-[#1E2B45]">
+                <div id="train-worker-bar" class="bg-blue-500 h-full rounded-full transition-all duration-300" style="width: 0%"></div>
+              </div>
+            </div>
+
+            <!-- Terminal-style log snippet -->
+            <div class="bg-[#060911] p-3 rounded-lg border border-[#1E2B45] font-mono text-[11px] text-slate-400 space-y-1">
+              <div class="text-slate-500">// Real-time worker log</div>
+              <div id="train-log-line-1" class="text-blue-300">Station ready.</div>
+              <div id="train-log-line-2" class="text-slate-400">Locked test vault verified (44 images quarantined).</div>
+              <div id="train-log-line-3" class="text-emerald-400" id="train-log-result"></div>
+            </div>
+          </div>
+
+          <!-- Active Model Switcher -->
+          <div class="card p-5 space-y-3">
+            <div class="text-xs font-semibold text-slate-300 uppercase tracking-wider border-b border-[#1E2B45] pb-2">Deployed Production Models</div>
+            <div class="space-y-2" id="models-list-container">
+              <!-- Dynamically populated deployed models -->
+            </div>
+          </div>
+
+        </div>
+
+      </div>
+
+    </section>
+
+    <!-- ======================================================================= -->
+    <!-- STATION 4: ANALYTICS & AUDIT -->
+    <!-- ======================================================================= -->
+    <section id="station-analytics" class="station-view hidden space-y-6">
+
+      <!-- Station Header -->
+      <div class="bg-[#111726] p-5 rounded-xl border border-[#1E2B45] flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div>
+          <h1 class="text-lg font-bold text-slate-100 flex items-center gap-2">
+            <span>Quality Analytics & Operator Audit Log</span>
+            <span class="text-xs font-normal text-cyan-400 px-2 py-0.5 rounded bg-cyan-500/10 border border-cyan-500/30">Executive Reporting</span>
+          </h1>
+          <p class="text-xs text-slate-400 mt-1 max-w-2xl leading-relaxed">
+            Review detection performance curves, adjust inspection sensitivity, and export verifiable audit reports.
+          </p>
+        </div>
+        <button onclick="exportAuditCsv()" class="px-3.5 py-2 rounded-lg bg-[#161F33] hover:bg-[#1C2740] border border-[#1E2B45] text-xs font-medium text-slate-200 flex items-center gap-2 transition">
+          <i data-lucide="download" class="w-4 h-4 text-blue-400"></i>
+          <span>Download Audit CSV</span>
+        </button>
+      </div>
+
+      <!-- KPI Summary Cards -->
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div class="card p-4">
+          <div class="text-slate-400 text-xs">Detection Accuracy</div>
+          <div class="text-2xl font-bold font-mono text-slate-100 mt-1">96.5%</div>
+          <div class="text-[11px] text-emerald-400 mt-1">Verified on 44-part vault</div>
+        </div>
+        <div class="card p-4">
+          <div class="text-slate-400 text-xs">Defect Catch Rate</div>
+          <div class="text-2xl font-bold font-mono text-slate-100 mt-1">97.2%</div>
+          <div class="text-[11px] text-emerald-400 mt-1">&lt;2.8% escape rate</div>
+        </div>
+        <div class="card p-4">
+          <div class="text-slate-400 text-xs">Physical Scrap Saved</div>
+          <div class="text-2xl font-bold font-mono text-blue-400 mt-1">85.0%</div>
+          <div class="text-[11px] text-blue-300 mt-1">Fewer broken parts needed</div>
+        </div>
+        <div class="card p-4">
+          <div class="text-slate-400 text-xs">Average Inspection Speed</div>
+          <div class="text-2xl font-bold font-mono text-slate-100 mt-1">18 ms</div>
+          <div class="text-[11px] text-slate-400 mt-1">CPU real-time compliant</div>
+        </div>
+      </div>
+
+      <!-- Sensitivity & ROI Curves Grid -->
+      <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+
+        <!-- Inspection Sensitivity Calibration (Left 5 Cols) -->
+        <div class="lg:col-span-5 card p-5 space-y-4">
+          <div class="font-semibold text-xs text-slate-300 uppercase tracking-wider border-b border-[#1E2B45] pb-2">Factory Strictness Calibration</div>
+
+          <div class="space-y-3">
+            <div class="flex justify-between text-xs text-slate-400">
+              <span>Inspection Strictness Dial</span>
+              <span id="sensitivity-val-label" class="font-mono text-blue-400 font-bold">0.50 (Balanced)</span>
+            </div>
+            <input type="range" id="sensitivity-slider" min="0.05" max="0.95" step="0.05" value="0.50" class="w-full h-1.5 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-blue-500" oninput="updateSensitivitySetting()">
+
+            <div class="grid grid-cols-3 text-center text-[11px] pt-1 gap-2">
+              <div class="p-2 rounded bg-[#060911] border border-[#1E2B45]">
+                <strong class="text-slate-300 block">Strict (0.20)</strong>
+                <span class="text-[10px] text-slate-500">Zero escaped defects</span>
+              </div>
+              <div class="p-2 rounded bg-blue-950/30 border border-blue-500/30">
+                <strong class="text-blue-400 block">Balanced (0.50)</strong>
+                <span class="text-[10px] text-slate-400">Recommended</span>
+              </div>
+              <div class="p-2 rounded bg-[#060911] border border-[#1E2B45]">
+                <strong class="text-slate-300 block">Lenient (0.80)</strong>
+                <span class="text-[10px] text-slate-500">Zero false alarms</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="bg-[#161F33] p-3 rounded-lg border border-[#1E2B45] text-xs text-slate-400 space-y-1">
+            <strong class="text-slate-200">How to set this:</strong>
+            <p class="text-[11px] text-slate-400 leading-relaxed">
+              If shipping a cracked bottle causes severe customer complaints, keep this slider strict (left). If throwing away good bottles is too expensive, move it lenient (right).
+            </p>
+          </div>
+        </div>
+
+        <!-- ROI Chart: Why Synthetic Augmentation Matters (Right 7 Cols) -->
+        <div class="lg:col-span-7 card p-5 space-y-3">
+          <div class="flex items-center justify-between border-b border-[#1E2B45] pb-2">
+            <span class="text-xs font-semibold text-slate-300 uppercase tracking-wider">Data Scarcity Trajectory (F1 Score vs Physical Defect Pool)</span>
+            <span class="text-[11px] text-emerald-400 font-semibold">+10.7% boost with SynthQC</span>
+          </div>
+          <div class="h-64 w-full">
+            <canvas id="scarcityChart"></canvas>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Operator Audit Trail Table -->
+      <div class="card p-5 space-y-3">
+        <div class="flex items-center justify-between border-b border-[#1E2B45] pb-2">
+          <span class="text-xs font-semibold text-slate-300 uppercase tracking-wider">Operator Decision History</span>
+          <span class="text-[11px] text-slate-400" id="audit-log-count">0 records logged</span>
+        </div>
+        <div class="overflow-x-auto">
+          <table class="w-full text-left text-xs">
+            <thead class="text-[11px] text-slate-400 uppercase bg-[#060911] border-b border-[#1E2B45]">
+              <tr>
+                <th class="py-2.5 px-3">Timestamp</th>
+                <th class="py-2.5 px-3">Part Specimen</th>
+                <th class="py-2.5 px-3">Identified Category</th>
+                <th class="py-2.5 px-3">Confidence</th>
+                <th class="py-2.5 px-3">Operator Decision</th>
+                <th class="py-2.5 px-3">Status</th>
+              </tr>
+            </thead>
+            <tbody id="audit-table-body" class="divide-y divide-[#1E2B45] text-slate-300 font-mono text-[11px]">
+              <tr>
+                <td colspan="6" class="py-4 text-center text-slate-500 font-sans">No operator dispositions recorded yet. Inspect parts in Station 1 to log decisions.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+    </section>
+
+  </main>
+
+  <!-- ========================================================================= -->
+  <!-- Toast Notification Container -->
+  <!-- ========================================================================= -->
+  <div id="toast-container"></div>
+
+  <!-- App Logic -->
+  <script src="/js/app.js"></script>
+  <script>
+    // Initialize Lucide icons
+    lucide.createIcons();
+  </script>
+</body>
+</html>
