@@ -42,11 +42,15 @@ SYNTHETIC_DEFAULT_COUNT = 30
 # Reproducibility
 RANDOM_SEED = 42
 
-# UI Styling Constants
-THEME_PRIMARY = "#00F0FF"       # Cyber Cyan
-THEME_SECONDARY = "#7928CA"     # Neon Purple
-THEME_SUCCESS = "#00FF88"       # Emerald Pass
-THEME_WARNING = "#FFB800"       # Amber Review
-THEME_DANGER = "#FF3366"        # Ruby Defect
-THEME_BG = "#0B0F19"            # Deep Space Navy
-THEME_CARD = "#161E31"          # Frosted Surface
+# UI Styling Constants (Calibrated Industrial Metrology Theme)
+THEME_PRIMARY = "#4A72B0"       # Technical Cobalt Steel
+THEME_SECONDARY = "#374151"     # Industrial Graphite
+THEME_SUCCESS = "#2E9E66"       # Calibrated Optical Pass
+THEME_WARNING = "#D97706"       # Inspection Review Amber
+THEME_DANGER = "#D33F49"        # Reject / Anomaly Red
+THEME_BG = "#0D1117"            # Deep Graphite Slate
+THEME_CARD = "#161B22"          # Matte Inspection Panel
+THEME_BORDER = "rgba(255, 255, 255, 0.08)"
+THEME_TEXT_PRIMARY = "#F0F6FC"
+THEME_TEXT_SECONDARY = "#8B949E"
+THEME_TEXT_MUTED = "#6E7681"
